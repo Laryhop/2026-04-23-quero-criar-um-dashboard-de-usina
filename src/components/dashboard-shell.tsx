@@ -18,18 +18,18 @@ function formatKwh(value: number) { return `${numberFormatter.format(value)} kWh
 function formatKw(value: number) { return `${numberFormatter.format(value)} kW`; }
 function formatCurrency(value: number) { return currencyFormatter.format(value); }
 
-// --- Sub-componentes de UI ---
-function MetricCard({ label, value, hint, accent = "from-[#fff6d8] to-white" }: any) {
+// --- Sub-componentes ---
+function MetricCard({ label, value, hint }: any) {
   return (
-    <article className={`rounded-[1.8rem] border p-5 shadow-sm transition-all border-[#f0d9a2] bg-gradient-to-br ${accent} dark:border-[#2f4938] dark:from-[#14271b] dark:to-[#0d1a12]`}>
-      <p className="text-[10px] font-black uppercase tracking-[0.15em] text-[#78350f] dark:text-[#f8b93c]">{label}</p>
-      <p className="mt-2 text-2xl font-black text-[#064e3b] dark:text-[#f0fdf4]">{value}</p>
-      {hint && <p className="mt-1 text-xs font-bold text-[#374151] dark:text-[#a8c1af] opacity-80">{hint}</p>}
+    <article className="rounded-[1.8rem] border p-5 shadow-sm bg-white dark:bg-[#12241a] border-slate-200 dark:border-emerald-800/50 transition-all hover:scale-[1.01]">
+      <p className="text-[10px] font-black uppercase tracking-[0.15em] text-[#7c4a03] dark:text-[#f8b93c]">{label}</p>
+      <p className="mt-2 text-2xl font-black text-[#052e16] dark:text-white">{value}</p>
+      {hint && <p className="mt-1 text-xs font-bold text-slate-500 dark:text-emerald-300/40">{hint}</p>}
     </article>
   );
 }
 
-function OriginalLineChart({ points, isDark }: { points: any[], isDark: boolean }) {
+function OriginalLineChart({ points }: { points: any[] }) {
   if (!points || points.length === 0) return null;
   const width = 800;
   const height = 180;
@@ -71,7 +71,7 @@ export function DashboardShell() {
         const [s, w] = await Promise.all([fetch("/api/solar"), fetch("/api/weather")]);
         setState({ status: "success", data: { solar: await s.json(), weather: await w.json() } });
       } catch (e) {
-        setState({ status: "error", message: "Erro ao carregar dados da API." });
+        setState({ status: "error", message: "Erro ao conectar com a API da usina." });
       }
     }
     loadData();
@@ -89,77 +89,107 @@ export function DashboardShell() {
     }
   };
 
-  if (state.status === "loading") return <div className="p-20 text-center dark:bg-[#09120d] dark:text-white">Carregando...</div>;
-  if (state.status === "error") return <div className="p-20 text-rose-500">{state.message}</div>;
+  if (state.status === "loading") return <div className="p-20 text-center dark:bg-[#09120d] dark:text-white font-bold">Iniciando Dashboard...</div>;
+  if (state.status === "error") return <div className="p-20 text-rose-500 text-center font-bold">{state.message}</div>;
 
   const { solar, weather } = state.data;
 
   return (
-    <main className="min-h-screen bg-[#f8faf8] p-4 transition-colors duration-300 dark:bg-[#09120d] sm:p-8">
+    <main className="min-h-screen bg-[#f8fafc] p-4 transition-colors duration-300 dark:bg-[#09120d] sm:p-8">
       <div className="mx-auto max-w-7xl space-y-8">
         
         {/* HEADER */}
-        <header className="flex flex-col items-center justify-between gap-6 rounded-[2.25rem] bg-[#0d2a1d] p-6 shadow-xl md:flex-row border border-emerald-900">
-          <div className="flex items-center gap-4">
+        <header className="flex flex-col items-center justify-between gap-6 rounded-[2.25rem] bg-[#0d2a1d] p-7 shadow-2xl md:flex-row border border-emerald-900">
+          <div className="flex items-center gap-5">
             <div className="rounded-2xl bg-white p-2">
-              <Image src="/solee-logo.png" alt="Logo" width={50} height={50} />
+              <Image src="/solee-logo.png" alt="Logo" width={55} height={55} priority />
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase text-[#f8b93c] tracking-widest">Dashboard</p>
-              <h1 className="text-xl font-bold text-white">Dashboard de geração de energia solar</h1>
+              <h1 className="text-xl font-black text-white sm:text-3xl">Geração de Energia Solar</h1>
+              <p className="text-xs text-emerald-400/60">Dashboard de geração de energia solar.</p>
             </div>
           </div>
-          <button onClick={toggleTheme} className="rounded-xl border border-white/20 bg-white/10 px-6 py-2 text-xs font-bold text-white hover:bg-white/20">
-            {isDark ? "MODO CLARO ☀️" : "MODO ESCURO 🌙"}
+          <button onClick={toggleTheme} className="rounded-full border border-white/20 bg-white/10 px-8 py-3 text-xs font-black text-white hover:bg-white/20 transition-all uppercase">
+            {isDark ? "Modo Claro" : "Modo Escuro"}
           </button>
         </header>
 
-        {/* MÉTRICAS (8 CARDS) */}
+        {/* MÉTRICAS (8 CARDS COMPLETOS) */}
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <MetricCard label="Geração Hoje" value={formatKwh(solar.summary.todayGenerationKwh)} hint={`Meta: ${solar.summary.targetDailyKwh} kWh`} />
-          <MetricCard label="Geração Mensal" value={formatKwh(solar.summary.monthlyGenerationKwh)} hint={`Total: ${compactNumberFormatter.format(solar.summary.totalGenerationKwh)}`} accent="from-[#fef1c3] to-white" />
-          <MetricCard label="Venda Hoje" value={formatCurrency(solar.summary.economyTodayBrl)} hint="Venda estimada" accent="from-[#ffe7c0] to-white" />
-          <MetricCard label="Performance" value={`${solar.summary.performancePct}%`} hint={`Tarifa: ${formatCurrency(solar.summary.tariffKwhBrl)}`} accent="from-[#e8f6ea] to-white" />
-          <MetricCard label="Potência Atual" value={formatKw(solar.summary.currentPowerKw)} hint={solar.summary.plantName} accent="from-[#e8f6ea] to-white" />
-          <MetricCard label="Status Usina" value={solar.summary.statusLabel} hint={solar.summary.location} accent="from-[#f3f9e8] to-white" />
-          <MetricCard label="Venda Total" value={formatCurrency(solar.summary.totalRevenueBrl)} hint="Acumulado histórico" accent="from-[#fff0ce] to-white" />
-          <MetricCard label="Última Leitura" value={new Date(solar.summary.updatedAt).toLocaleTimeString()} hint="Horário do servidor" accent="from-[#f2f8ec] to-white" />
+          <MetricCard label="Geração Hoje" value={formatKwh(solar.summary.todayGenerationKwh)} hint={`Meta: ${formatKwh(solar.summary.targetDailyKwh)}`} />
+          <MetricCard label="Geração Mensal" value={formatKwh(solar.summary.monthlyGenerationKwh)} hint={`Mês: ${compactNumberFormatter.format(solar.summary.monthlyGenerationKwh)}`} />
+          <MetricCard label="Venda Hoje" value={formatCurrency(solar.summary.economyTodayBrl)} hint="Venda estimada hoje" />
+          <MetricCard label="Performance" value={`${solar.summary.performancePct}%`} hint={`Tarifa: ${formatCurrency(solar.summary.tariffKwhBrl)}`} />
+          <MetricCard label="Potência Atual" value={formatKw(solar.summary.currentPowerKw)} hint="Capacidade L & M" />
+          <MetricCard label="Status da Usina" value={solar.summary.statusLabel} hint={solar.summary.location} />
+          <MetricCard label="Venda Total" value={formatCurrency(solar.summary.totalRevenueBrl)} hint="Acumulado histórico" />
+          <MetricCard label="Última Leitura" value={new Date(solar.summary.updatedAt).toLocaleTimeString()} hint="Horário de consulta" />
         </section>
 
         {/* GRÁFICO */}
-        <section className="rounded-[2rem] bg-white p-6 shadow-sm dark:bg-[#102418] border border-gray-100 dark:border-emerald-900/30">
-          <h2 className="mb-4 text-lg font-bold text-[#064e3b] dark:text-emerald-400">Geração por hora</h2>
-          <OriginalLineChart isDark={isDark} points={solar.hourlyChart.map((p: any) => ({ label: p.timeLabel, value: p.powerKw }))} />
+        <section className="rounded-[2rem] bg-white p-8 shadow-sm dark:bg-[#102418] border border-slate-200 dark:border-emerald-900/30">
+          <h2 className="mb-6 text-xl font-black text-[#052e16] dark:text-white">Geração por hora</h2>
+          <OriginalLineChart points={solar.hourlyChart.map((p: any) => ({ label: p.timeLabel, value: p.powerKw }))} />
         </section>
 
-        {/* SEÇÃO DUPLA */}
+        {/* TABELA E INVERSORES */}
         <div className="grid gap-8 lg:grid-cols-2">
-          <section className="rounded-[2rem] bg-white p-6 shadow-sm dark:bg-[#102418] border border-gray-100 dark:border-emerald-900/30">
-            <h2 className="mb-4 text-lg font-bold text-[#064e3b] dark:text-emerald-400">Status dos Inversores</h2>
-            <div className="space-y-3">
-              {solar.inverters.map((inv: any) => (
-                <div key={inv.id} className="flex justify-between p-4 rounded-xl border dark:border-[#31483a] dark:bg-[#16271c]">
-                  <span className="font-bold dark:text-white">{inv.name}</span>
-                  <span className="font-bold text-emerald-600">{formatKw(inv.powerKw)}</span>
-                </div>
-              ))}
+          {/* TABELA DE HISTÓRICO */}
+          <section className="rounded-[2rem] bg-white p-8 shadow-sm dark:bg-[#102418] border border-slate-200 dark:border-emerald-900/30">
+            <h2 className="mb-4 text-xl font-black text-[#052e16] dark:text-white">Comparação Diária (7 dias)</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b dark:border-emerald-900 text-[#7c4a03] dark:text-[#f8b93c] font-black uppercase text-[10px]">
+                    <th className="py-3">Dia</th>
+                    <th>Geração</th>
+                    <th>Receita</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y dark:divide-emerald-900/30">
+                  {solar.dailyHistory.slice(0, 7).map((day: any) => (
+                    <tr key={day.date} className="dark:text-white/80">
+                      <td className="py-4 font-bold">{day.label}</td>
+                      <td>{formatKwh(day.generationKwh)}</td>
+                      <td className="font-black text-emerald-700 dark:text-emerald-400">{formatCurrency(day.economyBrl)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </section>
 
-          <section className="rounded-[2rem] bg-gradient-to-br from-[#0d2a1d] to-[#1a4d36] p-6 text-white">
-            <h2 className="mb-4 text-lg font-bold text-[#f8b93c]">Previsão do Tempo</h2>
-            <div className="flex justify-between items-end">
-              <div>
-                <p className="text-4xl font-black">{weather.current.temperatureC}°C</p>
-                <p className="opacity-80">{weather.current.weatherLabel}</p>
+          {/* INVERSORES E CLIMA */}
+          <div className="space-y-8">
+            <section className="rounded-[2rem] bg-white p-6 shadow-sm dark:bg-[#102418] border border-slate-200 dark:border-emerald-900/30">
+              <h2 className="mb-4 text-xl font-black text-[#052e16] dark:text-white">Inversores</h2>
+              <div className="space-y-3">
+                {solar.inverters.map((inv: any) => (
+                  <div key={inv.id} className="flex justify-between items-center p-4 rounded-2xl bg-slate-50 dark:bg-[#16271c] border border-slate-100 dark:border-emerald-900/50">
+                    <span className="font-bold dark:text-emerald-400">{inv.name}</span>
+                    <span className="font-black text-emerald-900 dark:text-white">{formatKw(inv.powerKw)}</span>
+                  </div>
+                ))}
               </div>
-              <div className="text-right text-xs opacity-70">
-                <p>Chuva: {weather.current.precipitationProbabilityPct}%</p>
-                <p>Vento: {weather.current.windKph} km/h</p>
+            </section>
+
+            <section className="rounded-[2rem] bg-gradient-to-br from-[#0d2a1d] to-[#143a28] p-8 text-white shadow-xl">
+              <p className="text-[11px] font-black uppercase text-[#f8b93c]">Clima em {weather.location}</p>
+              <div className="flex justify-between items-end mt-4">
+                <div>
+                  <p className="text-6xl font-black">{weather.current.temperatureC}°C</p>
+                  <p className="text-emerald-300 font-bold mt-2">{weather.current.weatherLabel}</p>
+                </div>
+                <div className="text-right text-xs opacity-70 font-bold">
+                  <p>Umidade: {weather.current.precipitationProbabilityPct}%</p>
+                  <p>Vento: {weather.current.windKph} km/h</p>
+                </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
         </div>
+
       </div>
     </main>
   );
