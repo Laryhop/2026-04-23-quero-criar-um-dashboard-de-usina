@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 import { DashboardShell } from "@/components/dashboard-shell";
 
 export const metadata: Metadata = {
-  title: "Usina Solar | Dashboard",
+  title: "Solee Energia Solar",
   description:
-    "Acompanhamento de geração, performance, economia e status dos inversores da usina solar.",
+    "Acompanhamento de geracao, receita, performance e status dos inversores da usina solar.",
 };
 
 export default function Home() {

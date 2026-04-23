@@ -17,6 +17,7 @@ type SolarDashboardData = {
     totalGenerationKwh: number;
     economyTodayBrl: number;
     economyMonthBrl: number;
+    totalRevenueBrl: number;
     performancePct: number;
     targetDailyKwh: number;
     statusLabel: string;
@@ -288,14 +289,14 @@ export function DashboardShell() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-sm uppercase tracking-[0.24em] text-amber-200/70">
-                Next.js + Vercel
+                Solee Energia Solar
               </p>
               <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                Dashboard da usina solar
+                Solee Energia Solar
               </h1>
               <p className="mt-4 max-w-2xl text-base leading-7 text-slate-200/80">
-                Monitoramento de geracao, economia, performance e status dos inversores
-                com atualizacao automatica e integracao com o SEMS Portal.
+                Painel comercial e operacional com geracao, receita estimada,
+                performance e status dos inversores via SEMS Portal.
               </p>
             </div>
             <div className="rounded-3xl border border-white/10 bg-slate-950/40 px-5 py-4 text-sm text-slate-300">
@@ -340,7 +341,7 @@ export function DashboardShell() {
                 hint={`Total acumulado: ${compactNumberFormatter.format(state.data.summary.totalGenerationKwh)} kWh`}
               />
               <MetricCard
-                label="Economia"
+                label="Receita hoje"
                 value={formatCurrency(state.data.summary.economyTodayBrl)}
                 hint={`No mes: ${formatCurrency(state.data.summary.economyMonthBrl)}`}
               />
@@ -360,16 +361,39 @@ export function DashboardShell() {
                 hint={state.data.summary.location || "Localizacao nao informada"}
               />
               <MetricCard
-                label="Historico"
-                value={`${state.data.dailyHistory.length} dias`}
-                hint="Base para tendencia recente"
+                label="Receita total"
+                value={formatCurrency(state.data.summary.totalRevenueBrl)}
+                hint={`Acumulado de ${compactNumberFormatter.format(state.data.summary.totalGenerationKwh)} kWh`}
               />
               <MetricCard
                 label="Ultima leitura"
                 value={formatUpdatedAt(state.data.summary.updatedAt)}
-                hint="Horário da consulta ao backend"
+                hint="Horario da consulta ao backend"
               />
             </section>
+
+            <SectionCard
+              title="Resumo de venda de energia"
+              subtitle="Quanto a usina gerou em reais com base na tarifa configurada."
+            >
+              <div className="grid gap-4 md:grid-cols-3">
+                <MetricCard
+                  label="Venda hoje"
+                  value={formatCurrency(state.data.summary.economyTodayBrl)}
+                  hint={`${formatKwh(state.data.summary.todayGenerationKwh)} gerados hoje`}
+                />
+                <MetricCard
+                  label="Venda no mes"
+                  value={formatCurrency(state.data.summary.economyMonthBrl)}
+                  hint={`${formatKwh(state.data.summary.monthlyGenerationKwh)} acumulados no mes`}
+                />
+                <MetricCard
+                  label="Venda total"
+                  value={formatCurrency(state.data.summary.totalRevenueBrl)}
+                  hint={`${formatKwh(state.data.summary.totalGenerationKwh)} acumulados na usina`}
+                />
+              </div>
+            </SectionCard>
 
             <div className="grid gap-6 xl:grid-cols-[1.4fr_0.9fr]">
               <SectionCard
@@ -443,7 +467,7 @@ export function DashboardShell() {
 
             <SectionCard
               title="Historico diario"
-              subtitle="Ultimos dias de geracao e impacto financeiro estimado."
+              subtitle="Ultimos dias de geracao e valor estimado de venda."
             >
               <div className="overflow-hidden rounded-3xl border border-white/10">
                 <table className="min-w-full divide-y divide-white/10 text-left text-sm">
@@ -451,7 +475,7 @@ export function DashboardShell() {
                     <tr>
                       <th className="px-4 py-3 font-medium">Dia</th>
                       <th className="px-4 py-3 font-medium">Geracao</th>
-                      <th className="px-4 py-3 font-medium">Economia</th>
+                      <th className="px-4 py-3 font-medium">Receita</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/8 bg-slate-950/40 text-slate-100">

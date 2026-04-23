@@ -21,6 +21,7 @@ export type SolarDashboardData = {
     totalGenerationKwh: number;
     economyTodayBrl: number;
     economyMonthBrl: number;
+    totalRevenueBrl: number;
     performancePct: number;
     targetDailyKwh: number;
     statusLabel: string;
@@ -99,6 +100,7 @@ export async function getSolarDashboardData(): Promise<SolarDashboardData> {
       snapshot.todayGenerationKwh;
     const economyTodayBrl = snapshot.todayGenerationKwh * env.TARIFA_KWH;
     const economyMonthBrl = monthlyGenerationKwh * env.TARIFA_KWH;
+    const totalRevenueBrl = snapshot.totalGenerationKwh * env.TARIFA_KWH;
     const performancePct =
       env.META_DIARIA > 0 ? (snapshot.todayGenerationKwh / env.META_DIARIA) * 100 : 0;
 
@@ -112,6 +114,7 @@ export async function getSolarDashboardData(): Promise<SolarDashboardData> {
         totalGenerationKwh: toFixedNumber(snapshot.totalGenerationKwh),
         economyTodayBrl: toFixedNumber(economyTodayBrl, 2),
         economyMonthBrl: toFixedNumber(economyMonthBrl, 2),
+        totalRevenueBrl: toFixedNumber(totalRevenueBrl, 2),
         performancePct: toFixedNumber(performancePct),
         targetDailyKwh: env.META_DIARIA,
         statusLabel: snapshot.status,

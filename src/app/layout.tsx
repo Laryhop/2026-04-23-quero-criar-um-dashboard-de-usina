@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Dashboard de Usina Solar",
-  description: "Monitoramento de geracao solar com Next.js e Vercel.",
+  title: "Solee Energia Solar",
+  description: "Painel da Solee Energia Solar com geracao e receita estimada.",
 };
 
 export default function RootLayout({
