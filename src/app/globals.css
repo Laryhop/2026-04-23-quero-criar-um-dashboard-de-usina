@@ -1,14 +1,11 @@
 @import "tailwindcss";
 
-/* Define o seletor .dark para o Tailwind v4 */
+/* Isso faz o modo escuro por classe funcionar no Tailwind v4 */
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
   --font-sans: "Aptos", "Segoe UI Variable", "Trebuchet MS", "Verdana", sans-serif;
-  --font-mono: "Cascadia Mono", "Aptos Mono", "Consolas", monospace;
 }
-
-/* REMOVIDO: Cores fixas do :root que travavam o visual */
 
 * {
   box-sizing: border-box;
@@ -16,11 +13,7 @@
 
 body {
   min-height: 100vh;
-  /* Agora o fundo e a cor do texto virão das classes do Tailwind no main */
+  margin: 0;
   font-family: var(--font-sans);
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
+  /* Deixamos sem background fixo aqui para o DashboardShell controlar */
 }
