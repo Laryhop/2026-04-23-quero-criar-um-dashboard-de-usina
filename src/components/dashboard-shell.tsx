@@ -1,808 +1,153 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 
-type ApiState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "success"; data: DashboardPayload };
+const THEME_KEY = "theme";
+const REFRESH_INTERVAL = 60000;
 
-type SortKey = "date" | "generationKwh" | "economyBrl" | "deltaKwh";
+export default function Dashboard() {
+  const [dark, setDark] = useState(false);
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-type SolarDashboardData = {
-  summary: {
-    plantName: string;
-    location: string | null;
-    todayGenerationKwh: number;
-    monthlyGenerationKwh: number;
-    currentPowerKw: number;
-    totalGenerationKwh: number;
-    economyTodayBrl: number;
-    economyMonthBrl: number;
-    totalRevenueBrl: number;
-    performancePct: number;
-    targetDailyKwh: number;
-    statusLabel: string;
-    updatedAt: string;
-    tariffKwhBrl: number;
-  };
-  inverters: Array<{
-    id: string;
-    name: string;
-    serialNumber: string | null;
-    status: string;
-    powerKw: number;
-    dayGenerationKwh: number;
-    totalGenerationKwh: number;
-  }>;
-  hourlyChart: Array<{
-    timeLabel: string;
-    powerKw: number;
-  }>;
-  dailyHistory: Array<{
-    date: string;
-    label: string;
-    generationKwh: number;
-    economyBrl: number;
-  }>;
-};
+  useEffect(() => {
+    const saved = localStorage.getItem(THEME_KEY);
+    const isDark = saved === "dark";
+    setDark(isDark);
+    document.documentElement.classList.toggle("dark", isDark);
+  }, []);
 
-type WeatherData = {
-  location: string;
-  current: {
-    temperatureC: number;
-    windKph: number;
-    precipitationProbabilityPct: number;
-    weatherLabel: string;
-  };
-  daily: Array<{
-    date: string;
-    label: string;
-    tempMaxC: number;
-    tempMinC: number;
-    precipitationProbabilityMaxPct: number;
-    weatherLabel: string;
-  }>;
-  updatedAt: string;
-};
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+    localStorage.setItem(THEME_KEY, dark ? "dark" : "light");
+  }, [dark]);
 
-type DashboardPayload = {
-  solar: SolarDashboardData;
-  weather: WeatherData;
-};
+  useEffect(() => {
+    async function load() {
+      try {
+        setLoading(true);
 
-type ApiError = { error?: string; detail?: string };
+        const [solarRes, weatherRes] = await Promise.all([
+          fetch("/api/solar"),
+          fetch("/api/weather"),
+        ]);
 
-type ComparisonRow = {
-  date: string;
-  label: string;
-  generationKwh: number;
-  economyBrl: number;
-  deltaKwh: number;
-};
+        const solar = await solarRes.json();
+        const weather = await weatherRes.json();
 
-type ChartPoint = {
-  label: string;
-  value: number;
-};
-
-const REFRESH_INTERVAL_MS = 60_000;
-
-const numberFormatter = new Intl.NumberFormat("pt-BR", {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 1,
-});
-
-const currencyFormatter = new Intl.NumberFormat("pt-BR", {
-  style: "currency",
-  currency: "BRL",
-  minimumFractionDigits: 2,
-});
-
-const compactNumberFormatter = new Intl.NumberFormat("pt-BR", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
-
-const THEME_STORAGE_KEY = "solee-dashboard-theme";
-
-function isApiError(payload: unknown): payload is ApiError {
-  return Boolean(payload && typeof payload === "object" && ("error" in payload || "detail" in payload));
-}
-
-function formatKwh(value: number) {
-  return `${numberFormatter.format(value)} kWh`;
-}
-
-function formatKw(value: number) {
-  return `${numberFormatter.format(value)} kW`;
-}
-
-function formatCurrency(value: number) {
-  return currencyFormatter.format(value);
-}
-
-function formatUpdatedAt(value: string) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function getStatusTone(status: string) {
-  const normalized = status.toLowerCase();
-
-  if (
-    normalized.includes("gera") ||
-    normalized.includes("online") ||
-    normalized.includes("normal") ||
-    normalized.includes("running")
-  ) {
-    return "bg-emerald-100 text-emerald-900 ring-emerald-300";
-  }
-
-  if (normalized.includes("standby") || normalized.includes("espera")) {
-    return "bg-amber-100 text-amber-900 ring-amber-300";
-  }
-
-  if (normalized.includes("offline") || normalized.includes("falha")) {
-    return "bg-rose-100 text-rose-900 ring-rose-300";
-  }
-
-  return "bg-white/70 text-slate-800 ring-slate-200";
-}
-
-function getDeltaTone(value: number) {
-  if (value > 0) return "text-emerald-700";
-  if (value < 0) return "text-rose-700";
-  return "text-slate-500";
-}
-
-function formatDeltaKwh(value: number) {
-  const signal = value > 0 ? "+" : "";
-  return `${signal}${numberFormatter.format(value)} kWh`;
-}
-
-function getComparisonRows(history: SolarDashboardData["dailyHistory"]) {
-  const last7 = [...history]
-    .sort((left, right) => right.date.localeCompare(left.date))
-    .slice(0, 7);
-
-  return last7.map((item, index) => {
-    const previous = last7[index + 1];
-    return {
-      ...item,
-      deltaKwh: previous ? item.generationKwh - previous.generationKwh : 0,
-    };
-  });
-}
-
-function sortComparisonRows(rows: ComparisonRow[], sortKey: SortKey, descending: boolean) {
-  const direction = descending ? -1 : 1;
-
-  return [...rows].sort((left, right) => {
-    if (sortKey === "date") {
-      return left.date.localeCompare(right.date) * direction;
+        setData({ solar, weather });
+        setError(null);
+      } catch (e: any) {
+        setError("Erro ao carregar dados");
+      } finally {
+        setLoading(false);
+      }
     }
 
-    return (left[sortKey] - right[sortKey]) * direction;
-  });
-}
+    load();
+    const interval = setInterval(load, REFRESH_INTERVAL);
+    return () => clearInterval(interval);
+  }, []);
 
-function MetricCard({
-  label,
-  value,
-  hint,
-  accent = "from-[#fff6d8] to-white",
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  accent?: string;
-}) {
   return (
-    <article
-      className={`rounded-[1.8rem] border border-[#f0d9a2] bg-gradient-to-br ${accent} p-5 shadow-[0_20px_60px_rgba(20,83,45,0.12)] transition duration-300 hover:-translate-y-1 hover:scale-[1.01] hover:shadow-[0_28px_80px_rgba(20,83,45,0.18)] dark:border-[#355341] dark:shadow-[0_22px_70px_rgba(0,0,0,0.28)]`}
-    >
-      <p className="text-sm uppercase tracking-[0.18em] text-[#a86d00] dark:text-[#f8b93c]">{label}</p>
-      <p className="mt-3 text-3xl font-semibold text-[#0d5b3f] dark:text-[#eff8e8]">{value}</p>
-      {hint ? <p className="mt-2 text-sm text-[#355c4a] dark:text-[#bbd1bf]">{hint}</p> : null}
-    </article>
+    <main className="min-h-screen bg-[#f6f7f9] dark:bg-[#0b1410] text-[#111827] dark:text-white p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+
+        {/* HEADER */}
+        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold">Dashboard Solar</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Monitoramento em tempo real
+            </p>
+          </div>
+
+          <button
+            onClick={() => setDark((v) => !v)}
+            className="px-4 py-2 rounded-xl border bg-white dark:bg-[#1f2f25] dark:border-[#355341]"
+          >
+            {dark ? "☀️ Claro" : "🌙 Escuro"}
+          </button>
+        </header>
+
+        {loading && <p>Carregando...</p>}
+        {error && <p className="text-red-500">{error}</p>}
+
+        {data && (
+          <>
+            {/* MÉTRICAS */}
+            <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              <Card label="Geração Hoje" value={`${data.solar.summary.todayGenerationKwh} kWh`} />
+              <Card label="Geração Mensal" value={`${data.solar.summary.monthlyGenerationKwh} kWh`} />
+              <Card label="Venda Hoje" value={`R$ ${data.solar.summary.economyTodayBrl}`} />
+              <Card label="Performance" value={`${data.solar.summary.performancePct}%`} />
+              <Card label="Potência Atual" value={`${data.solar.summary.currentPowerKw} kW`} />
+              <Card label="Status" value={data.solar.summary.statusLabel} />
+              <Card label="Venda Total" value={`R$ ${data.solar.summary.totalRevenueBrl}`} />
+              <Card label="Última Leitura" value={new Date(data.solar.summary.updatedAt).toLocaleString()} />
+            </section>
+
+            {/* GRÁFICO */}
+            <Box title="Geração por hora">
+              <div className="h-60 flex items-center justify-center text-gray-400">
+                {data.solar.hourlyChart.length} pontos carregados
+              </div>
+            </Box>
+
+            {/* INVERSORES */}
+            <Box title="Inversores">
+              <div className="space-y-3">
+                {data.solar.inverters.map((inv: any) => (
+                  <div key={inv.id} className="p-3 rounded-xl bg-gray-50 dark:bg-[#16271c] flex justify-between">
+                    <span>{inv.name}</span>
+                    <span>{inv.powerKw} kW</span>
+                  </div>
+                ))}
+              </div>
+            </Box>
+
+            {/* WEATHER */}
+            <Box title="Clima">
+              <p>{data.weather.current.temperatureC}°C - {data.weather.current.weatherLabel}</p>
+            </Box>
+
+            {/* TABELA */}
+            <Box title="Últimos dias">
+              <table className="w-full text-sm">
+                <tbody>
+                  {data.solar.dailyHistory.slice(0, 7).map((d: any) => (
+                    <tr key={d.date} className="border-t dark:border-[#2a3a2f]">
+                      <td className="py-2">{d.label}</td>
+                      <td>{d.generationKwh} kWh</td>
+                      <td>R$ {d.economyBrl}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Box>
+          </>
+        )}
+
+      </div>
+    </main>
   );
 }
 
-function SectionCard({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
+function Card({ label, value }: { label: string; value: string }) {
   return (
-    <section className="rounded-[2rem] border border-[#d9e5d8] bg-white/92 p-5 shadow-[0_24px_80px_rgba(19,78,48,0.12)] backdrop-blur transition duration-300 hover:shadow-[0_30px_90px_rgba(19,78,48,0.16)] dark:border-[#2f4938] dark:bg-[#102418]/92 dark:shadow-[0_28px_90px_rgba(0,0,0,0.34)] sm:p-6">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-xl font-semibold text-[#0d5b3f] dark:text-[#eff8e8]">{title}</h2>
-        {subtitle ? <p className="text-sm text-[#557c69] dark:text-[#a8c1af]">{subtitle}</p> : null}
-      </div>
-      <div className="mt-6">{children}</div>
-    </section>
-  );
-}
-
-function LineChart({ points }: { points: Array<{ label: string; value: number }> }) {
-  if (!points.length) {
-    return (
-      <div className="rounded-2xl border border-dashed border-[#c7d8c5] px-4 py-10 text-center text-sm text-[#557c69]">
-        Nao ha dados suficientes para montar este grafico ainda.
-      </div>
-    );
-  }
-
-  const width = 760;
-  const height = 260;
-  const maxValue = Math.max(...points.map((point) => point.value), 1);
-  const stepX = points.length > 1 ? width / (points.length - 1) : width;
-  const chartPoints = points.map((point, index) => {
-    const x = index * stepX;
-    const y = height - (point.value / maxValue) * (height - 20) - 10;
-    return { ...point, x, y };
-  });
-
-  const path = chartPoints
-    .map((point, index) => {
-      return `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`;
-    })
-    .join(" ");
-
-  return (
-    <InteractiveLineChart chartPoints={chartPoints} height={height} path={path} width={width} />
-  );
-}
-
-function InteractiveLineChart({
-  chartPoints,
-  height,
-  path,
-  width,
-}: {
-  chartPoints: Array<ChartPoint & { x: number; y: number }>;
-  height: number;
-  path: string;
-  width: number;
-}) {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const activePoint = activeIndex === null ? null : chartPoints[activeIndex];
-
-  return (
-    <div className="relative">
-      <div className="overflow-hidden rounded-3xl border border-[#e6eddc] bg-[#fffdf5] p-3 dark:border-[#31483a] dark:bg-[#16271c] sm:p-4">
-        <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full">
-          <defs>
-            <linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="rgba(255, 181, 45, 0.35)" />
-              <stop offset="100%" stopColor="rgba(255, 181, 45, 0)" />
-            </linearGradient>
-          </defs>
-          {[0.25, 0.5, 0.75, 1].map((ratio) => (
-            <line
-              key={ratio}
-              x1="0"
-              x2={width}
-              y1={height - ratio * (height - 20)}
-              y2={height - ratio * (height - 20)}
-              stroke="rgba(19, 78, 48, 0.1)"
-              strokeDasharray="4 8"
-            />
-          ))}
-          <path d={`${path} L ${width} ${height} L 0 ${height} Z`} fill="url(#chart-fill)" />
-          <path
-            d={path}
-            fill="none"
-            stroke="#ff9d1c"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="4"
-          />
-          {activePoint ? (
-            <>
-              <line
-                x1={activePoint.x}
-                x2={activePoint.x}
-                y1="0"
-                y2={height}
-                stroke="rgba(13, 91, 63, 0.18)"
-                strokeDasharray="6 8"
-              />
-              <circle cx={activePoint.x} cy={activePoint.y} fill="#ffffff" r="8" />
-              <circle cx={activePoint.x} cy={activePoint.y} fill="#ff9d1c" r="5" />
-            </>
-          ) : null}
-          {chartPoints.map((point, index) => (
-            <circle
-              key={`${point.label}-${index}`}
-              cx={point.x}
-              cy={point.y}
-              r="12"
-              fill="transparent"
-              onMouseEnter={() => setActiveIndex(index)}
-              onMouseLeave={() => setActiveIndex(null)}
-            />
-          ))}
-        </svg>
-      </div>
-      {activePoint ? (
-        <div className="pointer-events-none absolute left-4 top-4 rounded-2xl border border-[#f0d9a2] bg-white/95 px-4 py-3 shadow-[0_12px_30px_rgba(13,91,63,0.12)] dark:border-[#4d6839] dark:bg-[#1b2e20]/95 sm:left-6 sm:top-6">
-          <p className="text-xs uppercase tracking-[0.14em] text-[#a86d00] dark:text-[#f8b93c]">{activePoint.label}</p>
-          <p className="mt-1 text-lg font-semibold text-[#0d5b3f] dark:text-[#eff8e8]">
-            {numberFormatter.format(activePoint.value)} kW
-          </p>
-          <p className="text-sm text-[#557c69] dark:text-[#bbd1bf]">Geracao estimada nessa hora do dia</p>
-        </div>
-      ) : null}
+    <div className="p-4 rounded-2xl bg-white dark:bg-[#1a2b22] border border-gray-200 dark:border-[#2a3a2f] shadow-sm">
+      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="text-xl font-semibold mt-2">{value}</p>
     </div>
   );
 }
 
-function SortButton({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
+function Box({ title, children }: any) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-full px-3 py-2 text-xs font-medium transition ${
-        active
-          ? "bg-[#0d5b3f] text-white"
-          : "bg-[#f8f3df] text-[#0d5b3f] hover:bg-[#efe5bf]"
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
-
-export function DashboardShell() {
-  const [state, setState] = useState<ApiState>({ status: "loading" });
-  const [sortKey, setSortKey] = useState<SortKey>("date");
-  const [descending, setDescending] = useState(true);
-  const [isDark, setIsDark] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    return window.localStorage.getItem(THEME_STORAGE_KEY) === "dark";
-  });
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(THEME_STORAGE_KEY, isDark ? "dark" : "light");
-    }
-  }, [isDark]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadDashboard() {
-      try {
-        const [solarResponse, weatherResponse] = await Promise.all([
-          fetch("/api/solar", { cache: "no-store" }),
-          fetch("/api/weather", { cache: "no-store" }),
-        ]);
-
-        const solarPayload = (await solarResponse.json()) as SolarDashboardData | ApiError;
-        const weatherPayload = (await weatherResponse.json()) as WeatherData | ApiError;
-
-        if (!solarResponse.ok) {
-          throw new Error(
-            isApiError(solarPayload)
-              ? solarPayload.detail || solarPayload.error || "Falha ao carregar dados."
-              : "Falha ao carregar dados.",
-          );
-        }
-
-        if (!weatherResponse.ok) {
-          throw new Error(
-            isApiError(weatherPayload)
-              ? weatherPayload.detail || weatherPayload.error || "Falha ao carregar clima."
-              : "Falha ao carregar clima.",
-          );
-        }
-
-        if (!cancelled) {
-          setState({
-            status: "success",
-            data: {
-              solar: solarPayload as SolarDashboardData,
-              weather: weatherPayload as WeatherData,
-            },
-          });
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setState({
-            status: "error",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Nao foi possivel carregar o dashboard.",
-          });
-        }
-      }
-    }
-
-    loadDashboard();
-    const interval = window.setInterval(loadDashboard, REFRESH_INTERVAL_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, []);
-
-  const comparisonRows =
-    state.status === "success"
-      ? sortComparisonRows(
-          getComparisonRows(state.data.solar.dailyHistory),
-          sortKey,
-          descending,
-        )
-      : [];
-
-  return (
-    <main
-      className={`${isDark ? "dark" : ""} min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(255,184,56,0.22),_transparent_22%),radial-gradient(circle_at_bottom_right,_rgba(26,112,76,0.18),_transparent_26%),linear-gradient(180deg,_#fff9eb_0%,_#f4fbf3_55%,_#eef8ef_100%)] px-4 py-6 text-[#103e2f] transition-colors dark:bg-[radial-gradient(circle_at_top_left,_rgba(255,184,56,0.12),_transparent_24%),radial-gradient(circle_at_bottom_right,_rgba(26,112,76,0.16),_transparent_26%),linear-gradient(180deg,_#09120d_0%,_#102116_50%,_#122a1b_100%)] dark:text-[#eff8e8] sm:px-6 sm:py-8 lg:px-12`}
-    >
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
-        <header className="overflow-hidden rounded-[2.25rem] border border-[#f3dfa9] bg-[linear-gradient(135deg,_rgba(255,247,224,0.96)_0%,_rgba(255,234,183,0.92)_48%,_rgba(227,244,230,0.94)_100%)] p-5 shadow-[0_30px_120px_rgba(255,166,0,0.12)] dark:border-[#4d6839] dark:bg-[linear-gradient(135deg,_rgba(18,34,22,0.96)_0%,_rgba(30,44,25,0.96)_50%,_rgba(18,54,38,0.94)_100%)] sm:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
-              <div className="mx-auto rounded-[2rem] bg-white/90 p-3 shadow-[0_10px_40px_rgba(16,62,47,0.12)] dark:bg-[#fff8ec] sm:mx-0">
-                <Image
-                  src="/solee-logo.png"
-                  alt="Logo Solee Energia Solar"
-                  width={96}
-                  height={96}
-                  priority
-                  className="h-20 w-20 object-contain sm:h-24 sm:w-24"
-                />
-              </div>
-              <div className="max-w-3xl text-center sm:text-left">
-                <p className="text-sm uppercase tracking-[0.26em] text-[#ff9d1c]">Dashboard</p>
-                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[#0d5b3f] dark:text-[#eff8e8] sm:text-4xl lg:text-5xl">
-                  Dashboard de geracao de energia solar
-                </h1>
-                <p className="mt-4 max-w-2xl text-sm leading-7 text-[#355c4a] dark:text-[#bbd1bf] sm:text-base">
-                  Dashboard de geracao de energia solar.
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-              <button
-                type="button"
-                onClick={() => setIsDark((current) => !current)}
-                className="rounded-3xl border border-white/70 bg-white/80 px-5 py-4 text-sm font-medium text-[#355c4a] transition hover:scale-[1.02] hover:bg-white dark:border-[#4d6839] dark:bg-[#183123] dark:text-[#eff8e8] dark:hover:bg-[#20402e]"
-              >
-                {isDark ? "Modo claro" : "Modo escuro"}
-              </button>
-              <div className="rounded-3xl border border-white/70 bg-white/75 px-5 py-4 text-sm text-[#355c4a] dark:border-[#4d6839] dark:bg-[#183123] dark:text-[#bbd1bf]">
-                Atualizacao automatica a cada 60 segundos
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {state.status === "loading" ? (
-          <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-            {Array.from({ length: 8 }).map((_, index) => (
-              <div
-                key={index}
-                className="h-36 animate-pulse rounded-3xl border border-[#e4ead7] bg-white/80 dark:border-[#2f4938] dark:bg-[#14271b]"
-              />
-            ))}
-          </section>
-        ) : null}
-
-        {state.status === "error" ? (
-          <SectionCard
-            title="Falha ao carregar dados"
-            subtitle="Confira credenciais, plant ID e disponibilidade dos servicos."
-          >
-            <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-4 text-sm text-rose-700">
-              {state.message}
-            </p>
-          </SectionCard>
-        ) : null}
-
-        {state.status === "success" ? (
-          <>
-            <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-              <MetricCard
-                label="Geracao hoje"
-                value={formatKwh(state.data.solar.summary.todayGenerationKwh)}
-                hint={`Meta diaria: ${formatKwh(state.data.solar.summary.targetDailyKwh)}`}
-                accent="from-[#fff6d8] to-[#fffdf5]"
-              />
-              <MetricCard
-                label="Geracao mensal"
-                value={formatKwh(state.data.solar.summary.monthlyGenerationKwh)}
-                hint={`Total acumulado: ${compactNumberFormatter.format(state.data.solar.summary.totalGenerationKwh)} kWh`}
-                accent="from-[#fef1c3] to-[#fffdf4]"
-              />
-              <MetricCard
-                label="Venda hoje"
-                value={formatCurrency(state.data.solar.summary.economyTodayBrl)}
-                hint={`No mes: ${formatCurrency(state.data.solar.summary.economyMonthBrl)}`}
-                accent="from-[#ffe7c0] to-[#fff7ea]"
-              />
-              <MetricCard
-                label="Performance"
-                value={`${numberFormatter.format(state.data.solar.summary.performancePct)}%`}
-                hint={`Tarifa: ${formatCurrency(state.data.solar.summary.tariffKwhBrl)}/kWh`}
-                accent="from-[#e8f6ea] to-[#f9fffb]"
-              />
-              <MetricCard
-                label="Potencia atual"
-                value={formatKw(state.data.solar.summary.currentPowerKw)}
-                hint={state.data.solar.summary.plantName}
-                accent="from-[#e8f6ea] to-[#f9fffb]"
-              />
-              <MetricCard
-                label="Status da usina"
-                value={state.data.solar.summary.statusLabel}
-                hint={state.data.solar.summary.location || "Localizacao nao informada"}
-                accent="from-[#f3f9e8] to-[#fbfff6]"
-              />
-              <MetricCard
-                label="Venda total"
-                value={formatCurrency(state.data.solar.summary.totalRevenueBrl)}
-                hint={`Acumulado de ${compactNumberFormatter.format(state.data.solar.summary.totalGenerationKwh)} kWh`}
-                accent="from-[#fff0ce] to-[#fffdf3]"
-              />
-              <MetricCard
-                label="Ultima leitura"
-                value={formatUpdatedAt(state.data.solar.summary.updatedAt)}
-                hint="Horario da consulta ao backend"
-                accent="from-[#f2f8ec] to-[#ffffff]"
-              />
-            </section>
-
-            <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <SectionCard
-              title="Valor estimado da energia gerada"
-              subtitle="Estimativa em reais da energia gerada pela usina com base na tarifa configurada. Nao representa venda liquidada."
-            >
-              <div className="mb-4 rounded-2xl border border-[#e9dfbf] bg-[#fff8e6] px-4 py-3 text-sm text-[#355c4a] dark:border-[#4d6839] dark:bg-[#1a3022] dark:text-[#bbd1bf]">
-                Tarifa utilizada no calculo:{" "}
-                <span className="font-semibold text-[#0d5b3f] dark:text-[#eff8e8]">
-                  {formatCurrency(state.data.solar.summary.tariffKwhBrl)}/kWh
-                </span>
-              </div>
-              <div className="grid gap-4 md:grid-cols-3">
-                <MetricCard
-                  label="Valor gerado hoje"
-                  value={formatCurrency(state.data.solar.summary.economyTodayBrl)}
-                  hint={`${formatKwh(state.data.solar.summary.todayGenerationKwh)} gerados hoje`}
-                  accent="from-[#fff7de] to-[#fffef8]"
-                />
-                <MetricCard
-                  label="Valor gerado no mes"
-                  value={formatCurrency(state.data.solar.summary.economyMonthBrl)}
-                  hint={`${formatKwh(state.data.solar.summary.monthlyGenerationKwh)} acumulados no mes`}
-                  accent="from-[#fff0d4] to-[#fffaf0]"
-                />
-                <MetricCard
-                  label="Valor gerado total"
-                  value={formatCurrency(state.data.solar.summary.totalRevenueBrl)}
-                  hint={`${formatKwh(state.data.solar.summary.totalGenerationKwh)} acumulados na usina`}
-                  accent="from-[#edf7ef] to-[#fbfffc]"
-                />
-              </div>
-              </SectionCard>
-
-              <SectionCard
-                title="Previsao do tempo"
-                subtitle={`Maravilha-AL | Atualizado em ${formatUpdatedAt(state.data.weather.updatedAt)}`}
-              >
-                <div className="grid gap-4">
-                    <article className="rounded-[1.8rem] border border-[#f0dfae] bg-[linear-gradient(135deg,_#fff6d7,_#fffdf5)] p-5 dark:border-[#4d6839] dark:bg-[linear-gradient(135deg,_#1a3022,_#13251a)]">
-                      <p className="text-sm uppercase tracking-[0.18em] text-[#a86d00]">
-                        Agora em {state.data.weather.location}
-                      </p>
-                    <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <p className="text-4xl font-semibold text-[#0d5b3f] dark:text-[#eff8e8]">
-                          {numberFormatter.format(state.data.weather.current.temperatureC)} C
-                        </p>
-                        <p className="mt-2 text-sm text-[#355c4a] dark:text-[#bbd1bf]">
-                          {state.data.weather.current.weatherLabel}
-                        </p>
-                      </div>
-                      <div className="text-left text-sm text-[#355c4a] dark:text-[#bbd1bf] sm:text-right">
-                        <p>Chuva: {state.data.weather.current.precipitationProbabilityPct}%</p>
-                        <p>Vento: {numberFormatter.format(state.data.weather.current.windKph)} km/h</p>
-                      </div>
-                    </div>
-                  </article>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    {state.data.weather.daily.map((day) => (
-                      <article
-                        key={day.date}
-                        className="rounded-2xl border border-[#e7eddc] bg-[#fbfff8] px-4 py-4 transition duration-300 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(19,78,48,0.12)] dark:border-[#31483a] dark:bg-[#16271c]"
-                      >
-                        <p className="text-xs uppercase tracking-[0.14em] text-[#a86d00]">
-                          {day.label}
-                        </p>
-                        <p className="mt-2 font-semibold text-[#0d5b3f] dark:text-[#eff8e8]">{day.weatherLabel}</p>
-                        <p className="mt-2 text-sm text-[#355c4a] dark:text-[#bbd1bf]">
-                          Max {numberFormatter.format(day.tempMaxC)} C
-                        </p>
-                        <p className="text-sm text-[#355c4a] dark:text-[#bbd1bf]">
-                          Min {numberFormatter.format(day.tempMinC)} C
-                        </p>
-                        <p className="mt-2 text-sm text-[#557c69] dark:text-[#9ab5a2]">
-                          Chuva {day.precipitationProbabilityMaxPct}%
-                        </p>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              </SectionCard>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-[1.35fr_0.95fr]">
-              <SectionCard
-                title="Geracao por hora"
-                subtitle="Passe o mouse sobre o grafico para ver quanto foi gerado em cada hora do dia."
-              >
-                <LineChart
-                  points={state.data.solar.hourlyChart.map((point) => ({
-                    label: point.timeLabel,
-                    value: point.powerKw,
-                  }))}
-                />
-              </SectionCard>
-
-              <SectionCard
-                title="Status dos inversores"
-                subtitle="Resumo por equipamento para operacao e acompanhamento."
-              >
-                <div className="space-y-3">
-                  {state.data.solar.inverters.map((inverter) => (
-                    <article
-                      key={inverter.id}
-                      className="rounded-3xl border border-[#e4ead7] bg-[#fcfff8] p-4 transition duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_rgba(19,78,48,0.12)] dark:border-[#31483a] dark:bg-[#16271c]"
-                    >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <h3 className="text-base font-semibold text-[#0d5b3f] dark:text-[#eff8e8]">{inverter.name}</h3>
-                          <p className="mt-1 text-sm text-[#557c69] dark:text-[#a8c1af]">
-                            {inverter.serialNumber || "SN nao informado"}
-                          </p>
-                        </div>
-                        <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ring-1 ${getStatusTone(inverter.status)}`}
-                        >
-                          {inverter.status}
-                        </span>
-                      </div>
-                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-2xl bg-[#fff8e8] px-3 py-3 dark:bg-[#23301b]">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#a86d00]">
-                            Potencia
-                          </p>
-                          <p className="mt-1 font-medium text-[#0d5b3f] dark:text-[#eff8e8]">
-                            {formatKw(inverter.powerKw)}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-[#f4fbf2] px-3 py-3 dark:bg-[#173326]">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#557c69]">
-                            Hoje
-                          </p>
-                          <p className="mt-1 font-medium text-[#0d5b3f] dark:text-[#eff8e8]">
-                            {formatKwh(inverter.dayGenerationKwh)}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl bg-[#f9fbf7] px-3 py-3 dark:bg-[#19281d]">
-                          <p className="text-xs uppercase tracking-[0.12em] text-[#557c69]">
-                            Acumulado
-                          </p>
-                          <p className="mt-1 font-medium text-[#0d5b3f] dark:text-[#eff8e8]">
-                            {compactNumberFormatter.format(inverter.totalGenerationKwh)} kWh
-                          </p>
-                        </div>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              </SectionCard>
-            </div>
-
-            <SectionCard
-              title="Comparacao diaria dos ultimos 7 dias"
-              subtitle="Tabela dinamica para acompanhar producao, venda estimada e variacao frente ao dia anterior."
-            >
-              <div className="mb-4 flex flex-wrap gap-2">
-                <SortButton
-                  active={sortKey === "date"}
-                  label="Ordenar por data"
-                  onClick={() => {
-                    setSortKey("date");
-                    setDescending(true);
-                  }}
-                />
-                <SortButton
-                  active={sortKey === "generationKwh"}
-                  label="Ordenar por geracao"
-                  onClick={() => {
-                    setSortKey("generationKwh");
-                    setDescending(true);
-                  }}
-                />
-                <SortButton
-                  active={sortKey === "economyBrl"}
-                  label="Ordenar por receita"
-                  onClick={() => {
-                    setSortKey("economyBrl");
-                    setDescending(true);
-                  }}
-                />
-                <SortButton
-                  active={sortKey === "deltaKwh"}
-                  label="Ordenar por variacao"
-                  onClick={() => {
-                    setSortKey("deltaKwh");
-                    setDescending(true);
-                  }}
-                />
-                <SortButton
-                  active={!descending}
-                  label="Crescente"
-                  onClick={() => setDescending(false)}
-                />
-                <SortButton
-                  active={descending}
-                  label="Decrescente"
-                  onClick={() => setDescending(true)}
-                />
-              </div>
-
-              <div className="overflow-x-auto rounded-3xl border border-[#e4ead7] dark:border-[#31483a]">
-                <table className="min-w-[640px] w-full divide-y divide-[#e8edde] text-left text-sm dark:divide-[#2b4434]">
-                  <thead className="bg-[#fff6df] text-[#0d5b3f] dark:bg-[#23301b] dark:text-[#eff8e8]">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Dia</th>
-                      <th className="px-4 py-3 font-medium">Geracao</th>
-                      <th className="px-4 py-3 font-medium">Receita</th>
-                      <th className="px-4 py-3 font-medium">Variacao</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#edf1e8] bg-white text-[#103e2f] dark:divide-[#2b4434] dark:bg-[#16271c] dark:text-[#eff8e8]">
-                    {comparisonRows.map((item) => (
-                      <tr key={item.date}>
-                        <td className="px-4 py-3">{item.label}</td>
-                        <td className="px-4 py-3">{formatKwh(item.generationKwh)}</td>
-                        <td className="px-4 py-3">{formatCurrency(item.economyBrl)}</td>
-                        <td className={`px-4 py-3 font-medium ${getDeltaTone(item.deltaKwh)}`}>
-                          {formatDeltaKwh(item.deltaKwh)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </SectionCard>
-          </>
-        ) : null}
-      </div>
-    </main>
+    <div className="p-5 rounded-2xl bg-white dark:bg-[#1a2b22] border border-gray-200 dark:border-[#2a3a2f] shadow-sm">
+      <h2 className="font-semibold mb-4">{title}</h2>
+      {children}
+    </div>
   );
 }
