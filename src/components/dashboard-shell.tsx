@@ -11,7 +11,7 @@ const cp = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFraction
 
 function MetricCard({ label, value, hint }: any) {
   return (
-    <article className="rounded-[1.5rem] border p-5 shadow-sm bg-white dark:bg-[#12241a] border-slate-200 dark:border-emerald-800/30">
+    <article className="rounded-[1.5rem] border p-5 shadow-sm bg-white dark:bg-[#12241a] border-slate-200 dark:border-emerald-800/30 transition-all hover:scale-[1.01]">
       <p className="text-[10px] font-black uppercase tracking-widest text-[#7c4a03] dark:text-[#f8b93c]">{label}</p>
       <p className="mt-2 text-2xl font-black text-[#052e16] dark:text-white">{value}</p>
       {hint && <p className="mt-1 text-xs font-bold text-slate-500 dark:text-emerald-300/40">{hint}</p>}
@@ -46,6 +46,8 @@ export function DashboardShell() {
   if (state.status === "error") return <div className="flex min-h-screen items-center justify-center text-red-500 font-black">{state.message}</div>;
 
   const { solar, weather } = state.data;
+  
+  // --- Proteções contra dados ausentes ---
   const summary = solar?.summary || {};
   const hourlyData = solar?.hourlyChart || [];
   const inverters = solar?.inverters || [];
@@ -56,7 +58,7 @@ export function DashboardShell() {
   const height = 300;
   const points = hourlyData.map((p: any) => ({ 
     label: p.timeLabel, 
-    value: p.powerKw // A API já deve retornar o total, ou aqui somaríamos caso houvesse arrays múltiplos
+    value: p.powerKw
   }));
   const maxValue = Math.max(...points.map((p: any) => p.value), 1);
   const stepX = width / (points.length > 1 ? points.length - 1 : 1);
@@ -77,7 +79,7 @@ export function DashboardShell() {
             <div className="rounded-2xl bg-white p-3 shadow-lg"><Image src="/solee-logo.png" alt="Logo" width={60} height={60} priority /></div>
             <div>
               <h1 className="text-2xl font-black text-white sm:text-3xl">Geração de Energia Solar</h1>
-              <p className="text-xs text-emerald-100/40 font-medium">Usina Maravilha-AL | Soma Total de {inverters.length} Inversores</p>
+              <p className="text-xs text-emerald-100/40 font-medium uppercase tracking-widest">Usina Maravilha-AL | Total de {inverters.length} Inversores</p>
             </div>
           </div>
           <button onClick={() => {
@@ -85,7 +87,7 @@ export function DashboardShell() {
             setIsDark(next);
             document.documentElement.classList.toggle("dark");
             localStorage.setItem("theme", next ? "dark" : "light");
-          }} className="rounded-2xl border border-white/10 bg-white/5 px-8 py-3 text-[10px] font-black text-white uppercase tracking-widest">
+          }} className="rounded-2xl border border-white/10 bg-white/5 px-8 py-3 text-[10px] font-black text-white uppercase tracking-widest hover:bg-white/10 transition-colors">
             {isDark ? "MODO CLARO ☀️" : "MODO ESCURO 🌙"}
           </button>
         </header>
@@ -97,9 +99,9 @@ export function DashboardShell() {
           <MetricCard label="Venda Hoje" value={cf.format((summary.todayGenerationKwh || 0) * 0.7)} hint="Venda estimada hoje" />
           <MetricCard label="Performance" value={(summary.performancePct || 0) + "%"} hint="Eficiência Combinada" />
           <MetricCard label="Potência Atual" value={nf.format(summary.currentPowerKw || 0) + " kW"} hint="Soma de todos inversores" />
-          <MetricCard label="Status da Usina" value={summary.statusLabel || "Online"} hint={summary.location} />
+          <MetricCard label="Status da Usina" value={summary.statusLabel || "Online"} hint={summary.location || "Maravilha, AL"} />
           <MetricCard label="Venda Total" value={cf.format(summary.totalRevenueBrl || 0)} hint="Acumulado Histórico" />
-          <MetricCard label="Última Leitura" value={new Date().toLocaleTimeString()} hint="Dados via Backend" />
+          <MetricCard label="Última Leitura" value={new Date().toLocaleTimeString()} hint="Dados atualizados" />
         </section>
 
         {/* GRÁFICO SOMA TOTAL POR HORA */}
@@ -171,51 +173,62 @@ export function DashboardShell() {
 
         <div className="grid gap-8 lg:grid-cols-2">
           {/* VALOR ESTIMADO */}
-          <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 border border-slate-200 dark:border-emerald-900/30 text-center">
+          <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 border border-slate-200 dark:border-emerald-900/30 text-center flex flex-col justify-center">
             <h2 className="text-xl font-black mb-6 dark:text-white">Valor estimado da Usina</h2>
             <div className="grid grid-cols-3 gap-4">
-              <div className="p-4 rounded-3xl bg-amber-50 dark:bg-amber-900/10 border border-amber-100/50">
+              <div className="p-4 rounded-3xl bg-amber-50 dark:bg-amber-900/10 border border-amber-100/50 dark:border-amber-900/30">
                 <p className="text-[9px] font-black uppercase text-amber-700">Hoje</p>
-                <p className="text-lg font-black">{cf.format((summary.todayGenerationKwh || 0) * 0.7)}</p>
+                <p className="text-lg font-black dark:text-white">{cf.format((summary.todayGenerationKwh || 0) * 0.7)}</p>
               </div>
-              <div className="p-4 rounded-3xl bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-100/50">
+              <div className="p-4 rounded-3xl bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-100/50 dark:border-emerald-900/30">
                 <p className="text-[9px] font-black uppercase text-emerald-700">No Mês</p>
-                <p className="text-lg font-black">{cf.format((summary.monthlyGenerationKwh || 0) * 0.7)}</p>
+                <p className="text-lg font-black dark:text-white">{cf.format((summary.monthlyGenerationKwh || 0) * 0.7)}</p>
               </div>
-              <div className="p-4 rounded-3xl bg-blue-50 dark:bg-blue-900/10 border border-blue-100/50">
+              <div className="p-4 rounded-3xl bg-blue-50 dark:bg-blue-900/10 border border-blue-100/50 dark:border-blue-900/30">
                 <p className="text-[9px] font-black uppercase text-blue-700">Total</p>
-                <p className="text-lg font-black">{cf.format(summary.totalRevenueBrl || 0)}</p>
+                <p className="text-lg font-black dark:text-white">{cf.format(summary.totalRevenueBrl || 0)}</p>
               </div>
             </div>
           </section>
 
-          {/* PREVISÃO DO TEMPO - HOJE, AMANHÃ, DEPOIS */}
-          <section className="rounded-[2.5rem] bg-[#09120d] p-8 text-white border border-emerald-900/50 shadow-2xl">
+          {/* PREVISÃO DO TEMPO - AJUSTADA COM MODO CLARO/ESCURO E CHUVA */}
+          <section className="rounded-[2.5rem] p-8 shadow-sm border transition-all duration-300 bg-white dark:bg-[#09120d] border-slate-200 dark:border-emerald-900/50">
             <div className="flex items-center justify-between mb-8">
-              <p className="text-[10px] font-black uppercase text-emerald-400 tracking-[0.2em]">Clima em Maravilha, AL</p>
-              <p className="text-[10px] font-bold text-white/40">Atualizado {new Date().toLocaleDateString()}</p>
+              <p className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400 tracking-[0.2em]">Clima em Maravilha, AL</p>
+              <p className="text-[10px] font-bold text-slate-400 dark:text-white/40">Atualizado {new Date().toLocaleDateString()}</p>
             </div>
             <div className="grid grid-cols-3 gap-4">
               {/* HOJE */}
-              <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
-                <p className="text-[9px] font-black text-amber-400 uppercase mb-2">Hoje</p>
-                <p className="text-3xl font-black">{weather?.current?.temp || "24"}°</p>
-                <p className="text-[10px] font-bold mt-1 opacity-80">{weather?.current?.condition || "Limpo"}</p>
-                <p className="text-[8px] mt-2 opacity-50">Vento: {weather?.current?.windSpeed}</p>
+              <div className="p-4 rounded-2xl border transition-all bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/10">
+                <p className="text-[9px] font-black text-amber-600 dark:text-amber-400 uppercase mb-2">Hoje</p>
+                <p className="text-3xl font-black text-[#052e16] dark:text-white">{weather?.current?.temp || "24"}°</p>
+                <p className="text-[10px] font-bold mt-1 text-slate-600 dark:text-white/80 uppercase">{weather?.current?.condition || "Limpo"}</p>
+                <div className="mt-3 space-y-1">
+                  <p className="text-[8px] font-bold text-blue-500 uppercase">Chuva: {weather?.current?.rainProb || "0%"}</p>
+                  <p className="text-[8px] font-medium text-slate-400 dark:text-white/40 uppercase">Vento: {weather?.current?.windSpeed}</p>
+                </div>
               </div>
+
               {/* AMANHÃ */}
-              <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
-                <p className="text-[9px] font-black text-emerald-400 uppercase mb-2">Amanhã</p>
-                <p className="text-3xl font-black">{weather?.forecast?.[0]?.max || "26"}°</p>
-                <p className="text-[10px] font-bold mt-1 opacity-80">{weather?.forecast?.[0]?.condition || "Parcial"}</p>
-                <p className="text-[8px] mt-2 opacity-50">Min: {weather?.forecast?.[0]?.min}°</p>
+              <div className="p-4 rounded-2xl border transition-all bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/10">
+                <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-2">Amanhã</p>
+                <p className="text-3xl font-black text-[#052e16] dark:text-white">{weather?.forecast?.[0]?.max || "26"}°</p>
+                <p className="text-[10px] font-bold mt-1 text-slate-600 dark:text-white/80 uppercase">{weather?.forecast?.[0]?.condition || "Parcial"}</p>
+                <div className="mt-3 space-y-1">
+                  <p className="text-[8px] font-bold text-blue-500 uppercase">Chuva: {weather?.forecast?.[0]?.rainProb || "10%"}</p>
+                  <p className="text-[8px] font-medium text-slate-400 dark:text-white/40 uppercase">Min: {weather?.forecast?.[0]?.min}°</p>
+                </div>
               </div>
+
               {/* DEPOIS DE AMANHÃ */}
-              <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
-                <p className="text-[9px] font-black text-emerald-400 uppercase mb-2">Próximo</p>
-                <p className="text-3xl font-black">{weather?.forecast?.[1]?.max || "27"}°</p>
-                <p className="text-[10px] font-bold mt-1 opacity-80">{weather?.forecast?.[1]?.condition || "Sol"}</p>
-                <p className="text-[8px] mt-2 opacity-50">Min: {weather?.forecast?.[1]?.min}°</p>
+              <div className="p-4 rounded-2xl border transition-all bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/10">
+                <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-2">Próximo</p>
+                <p className="text-3xl font-black text-[#052e16] dark:text-white">{weather?.forecast?.[1]?.max || "27"}°</p>
+                <p className="text-[10px] font-bold mt-1 text-slate-600 dark:text-white/80 uppercase">{weather?.forecast?.[1]?.condition || "Sol"}</p>
+                <div className="mt-3 space-y-1">
+                  <p className="text-[8px] font-bold text-blue-500 uppercase">Chuva: {weather?.forecast?.[1]?.rainProb || "5%"}</p>
+                  <p className="text-[8px] font-medium text-slate-400 dark:text-white/40 uppercase">Min: {weather?.forecast?.[1]?.min}°</p>
+                </div>
               </div>
             </div>
           </section>
@@ -226,18 +239,27 @@ export function DashboardShell() {
           <h2 className="text-xl font-black mb-8 dark:text-white">Status dos inversores individuais</h2>
           <div className="grid gap-6 md:grid-cols-2">
             {inverters.map((inv: any) => (
-              <div key={inv.id} className="rounded-[2rem] bg-slate-50 dark:bg-[#0d1a12] p-6 border border-slate-100 dark:border-emerald-900/20">
+              <div key={inv.id} className="rounded-[2rem] bg-slate-50 dark:bg-[#0d1a12] p-6 border border-slate-100 dark:border-emerald-900/20 hover:border-emerald-500/30 transition-colors">
                 <div className="flex justify-between items-center mb-6">
                   <div>
                     <p className="text-lg font-black dark:text-white uppercase tracking-tight">{inv.name}</p>
                     <p className="text-[9px] font-mono opacity-40">{inv.serial || "SN-USINA-001"}</p>
                   </div>
-                  <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase ${inv.status === 'Online' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>{inv.status}</span>
+                  <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase ${inv.status === 'Online' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'}`}>{inv.status}</span>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center text-[9px] font-black">
-                  <div className="bg-white dark:bg-[#09120d] p-3 rounded-2xl border border-slate-100 dark:border-white/5"><p className="uppercase text-slate-400">Potência</p><p className="text-sm dark:text-white">{inv.powerKw} kW</p></div>
-                  <div className="bg-white dark:bg-[#09120d] p-3 rounded-2xl border border-slate-100 dark:border-white/5"><p className="uppercase text-slate-400">Hoje</p><p className="text-sm dark:text-white">{nf.format(inv.dayGenerationKwh)}</p></div>
-                  <div className="bg-white dark:bg-[#09120d] p-3 rounded-2xl border border-slate-100 dark:border-white/5"><p className="uppercase text-slate-400">Total</p><p className="text-sm dark:text-white">{cp.format(inv.totalGenerationKwh)}</p></div>
+                  <div className="bg-white dark:bg-[#09120d] p-3 rounded-2xl border border-slate-100 dark:border-white/5">
+                    <p className="uppercase text-slate-400 mb-1">Potência</p>
+                    <p className="text-sm dark:text-white">{inv.powerKw} kW</p>
+                  </div>
+                  <div className="bg-white dark:bg-[#09120d] p-3 rounded-2xl border border-slate-100 dark:border-white/5">
+                    <p className="uppercase text-slate-400 mb-1">Hoje</p>
+                    <p className="text-sm dark:text-white">{nf.format(inv.dayGenerationKwh)} kWh</p>
+                  </div>
+                  <div className="bg-white dark:bg-[#09120d] p-3 rounded-2xl border border-slate-100 dark:border-white/5">
+                    <p className="uppercase text-slate-400 mb-1">Total</p>
+                    <p className="text-sm dark:text-white">{cp.format(inv.totalGenerationKwh)} kWh</p>
+                  </div>
                 </div>
               </div>
             ))}
