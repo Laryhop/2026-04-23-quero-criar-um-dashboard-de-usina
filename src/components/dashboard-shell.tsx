@@ -2,24 +2,14 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-} from "recharts";
 
-// --- Tipagens e Formatadores ---
+// --- Tipagens ---
 type ApiState = 
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "success"; data: any };
 
+// --- Formatadores ---
 const numberFormatter = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
 const currencyFormatter = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const compactNumberFormatter = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
@@ -39,15 +29,41 @@ function MetricCard({ label, value, hint, accent = "from-[#fff6d8] to-white" }: 
   );
 }
 
-function SectionCard({ title, subtitle, children }: any) {
+// O GRÁFICO ORIGINAL (SVG PURO)
+function OriginalLineChart({ points, isDark }: { points: any[], isDark: boolean }) {
+  if (!points || points.length === 0) return null;
+  
+  const width = 800;
+  const height = 200;
+  const maxValue = Math.max(...points.map(p => p.value), 1);
+  const stepX = width / (points.length - 1);
+  
+  const pts = points.map((p, i) => ({
+    x: i * stepX,
+    y: height - (p.value / maxValue) * (height - 40) - 20
+  }));
+
+  const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
   return (
-    <section className="rounded-[2rem] border border-[#d9e5d8] bg-white/90 p-6 shadow-sm dark:border-[#2f4938] dark:bg-[#102418]/90">
-      <div className="mb-6">
-        <h2 className="text-xl font-bold text-[#0d5b3f] dark:text-[#eff8e8]">{title}</h2>
-        {subtitle && <p className="text-sm text-[#557c69] dark:text-[#a8c1af]">{subtitle}</p>}
+    <div className="w-full overflow-hidden rounded-2xl bg-[#fffdf5] p-4 dark:bg-[#16271c] border border-[#e6eddc] dark:border-[#31483a]">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-48">
+        <defs>
+          <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#ff9d1c" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#ff9d1c" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={`${d} L ${width} ${height} L 0 ${height} Z`} fill="url(#grad)" />
+        <path d={d} fill="none" stroke="#ff9d1c" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        {pts.map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r="4" fill={isDark ? "#eff8e8" : "#0d5b3f"} />
+        ))}
+      </svg>
+      <div className="flex justify-between mt-2 text-[10px] text-[#557c69] dark:text-[#a8c1af]">
+        {points.filter((_, i) => i % 4 === 0).map((p, i) => <span key={i}>{p.label}</span>)}
       </div>
-      {children}
-    </section>
+    </div>
   );
 }
 
@@ -84,14 +100,13 @@ export function DashboardShell() {
         const weather = await weatherRes.json();
         setState({ status: "success", data: { solar, weather } });
       } catch (e) {
-        setState({ status: "error", message: "Falha ao conectar com a usina." });
+        setState({ status: "error", message: "Erro ao carregar dados." });
       }
     }
     loadData();
   }, []);
 
-  if (state.status === "loading") return <div className="p-20 text-center dark:text-white">Carregando...</div>;
-  if (state.status === "error") return <div className="p-20 text-rose-500 text-center">{state.message}</div>;
+  if (state.status !== "success") return <div className="p-20 text-center dark:text-white">Carregando...</div>;
 
   const { solar, weather } = state.data;
 
@@ -115,62 +130,48 @@ export function DashboardShell() {
           </button>
         </header>
 
-        {/* MÉTRICAS */}
+        {/* MÉTRICAS PRINCIPAIS */}
         <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <MetricCard label="Geração Hoje" value={formatKwh(solar.summary.todayGenerationKwh)} hint={`Meta: ${formatKwh(solar.summary.targetDailyKwh)}`} />
-          <MetricCard label="Geração Mensal" value={formatKwh(solar.summary.monthlyGenerationKwh)} hint={`Total: ${compactNumberFormatter.format(solar.summary.totalGenerationKwh)}`} accent="from-[#fef1c3] to-white" />
+          <MetricCard label="Geração Mensal" value={formatKwh(solar.summary.monthlyGenerationKwh)} hint={`Mês: ${compactNumberFormatter.format(solar.summary.monthlyGenerationKwh)}`} accent="from-[#fef1c3] to-white" />
           <MetricCard label="Venda Hoje" value={formatCurrency(solar.summary.economyTodayBrl)} hint={`Mês: ${formatCurrency(solar.summary.economyMonthBrl)}`} accent="from-[#ffe7c0] to-white" />
           <MetricCard label="Performance" value={`${solar.summary.performancePct}%`} hint={`Tarifa: ${formatCurrency(solar.summary.tariffKwhBrl)}`} accent="from-[#e8f6ea] to-white" />
         </section>
 
-        {/* GRÁFICO DE GERAÇÃO (O QUE VOCÊ PEDIU) */}
-        <SectionCard title="Geração de Energia" subtitle="Histórico de produção em kWh (últimos 30 dias)">
-          <div className="h-[300px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={solar.dailyHistory}>
-                <defs>
-                  <linearGradient id="colorGen" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={isDark ? "#2f4938" : "#d9e5d8"} />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fill: isDark ? '#a8c1af' : '#557c69', fontSize: 12}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: isDark ? '#a8c1af' : '#557c69', fontSize: 12}} />
-                <Tooltip 
-                  contentStyle={{ backgroundColor: isDark ? '#102418' : '#fff', border: 'none', borderRadius: '12px', color: isDark ? '#fff' : '#000' }}
-                />
-                <Area type="monotone" dataKey="generationKwh" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorGen)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionCard>
+        {/* GRÁFICO ORIGINAL RESTAURADO */}
+        <section className="rounded-[2rem] border border-[#d9e5d8] bg-white/90 p-6 shadow-sm dark:border-[#2f4938] dark:bg-[#102418]/90">
+          <h2 className="mb-4 text-xl font-bold text-[#0d5b3f] dark:text-[#eff8e8]">Geração por hora</h2>
+          <OriginalLineChart 
+            isDark={isDark}
+            points={solar.hourlyChart.map((p: any) => ({ label: p.timeLabel, value: p.powerKw }))} 
+          />
+        </section>
 
-        {/* INVERSORES E CLIMA */}
         <div className="grid gap-8 lg:grid-cols-2">
-          <SectionCard title="Status dos inversores">
+          {/* INVERSORES */}
+          <section className="rounded-[2rem] border border-[#d9e5d8] bg-white/90 p-6 dark:border-[#2f4938] dark:bg-[#102418]/90">
+            <h2 className="mb-4 text-xl font-bold text-[#0d5b3f] dark:text-[#eff8e8]">Status dos inversores</h2>
             <div className="space-y-3">
               {solar.inverters.map((inv: any) => (
-                <div key={inv.id} className="flex items-center justify-between rounded-xl border border-[#e4ead7] p-4 dark:border-[#31483a] dark:bg-[#16271c]">
-                  <p className="font-bold text-[#0d5b3f] dark:text-emerald-400">{inv.name}</p>
-                  <p className="font-bold">{formatKw(inv.powerKw)}</p>
+                <div key={inv.id} className="flex justify-between items-center p-4 rounded-xl border border-[#e4ead7] dark:border-[#31483a] dark:bg-[#16271c]">
+                  <span className="font-bold dark:text-emerald-400">{inv.name}</span>
+                  <span className="font-mono text-emerald-600">{formatKw(inv.powerKw)}</span>
                 </div>
               ))}
             </div>
-          </SectionCard>
+          </section>
 
-          <SectionCard title="Previsão do tempo" subtitle={weather.location}>
-            <div className="rounded-2xl bg-gradient-to-r from-[#0d2a1d] to-[#1a4d36] p-6 text-white flex justify-between items-center">
-              <div>
-                <p className="text-4xl font-bold">{weather.current.temperatureC}°C</p>
-                <p className="text-emerald-200">{weather.current.weatherLabel}</p>
-              </div>
-              <div className="text-right text-sm">
-                <p>Chuva: {weather.current.precipitationProbabilityPct}%</p>
-                <p>Vento: {weather.current.windKph} km/h</p>
+          {/* CLIMA */}
+          <section className="rounded-[2rem] border border-[#d9e5d8] bg-white/90 p-6 dark:border-[#2f4938] dark:bg-[#102418]/90">
+            <h2 className="mb-4 text-xl font-bold text-[#0d5b3f] dark:text-[#eff8e8]">Previsão do tempo</h2>
+            <div className="rounded-2xl bg-gradient-to-br from-[#0d2a1d] to-[#1a4d36] p-6 text-white">
+              <p className="text-sm opacity-70">{weather.location}</p>
+              <div className="flex justify-between items-end mt-2">
+                <span className="text-4xl font-bold">{weather.current.temperatureC}°C</span>
+                <span className="text-sm">{weather.current.weatherLabel}</span>
               </div>
             </div>
-          </SectionCard>
+          </section>
         </div>
       </div>
     </main>
