@@ -347,8 +347,7 @@ async function fetchPlantDetail(session: LoginSession, plantId: string) {
   });
 }
 
-// Substitua a partir desta linha até o final do arquivo:
-
+// ADICIONEI O PARÂMETRO dateStr PARA PODERMOS VOLTAR NO TEMPO
 async function fetchPlantPowerByDay(session: LoginSession, plantId: string, count: number, dateStr?: string) {
   return semsRequest<unknown>("PowerStationMonitor/GetPowerStationPowerAndIncomeByDay", session, {
     powerstation_id: plantId,
@@ -383,16 +382,20 @@ export async function getSemsPlantSnapshot(): Promise<SemsPlantSnapshot> {
     throw new Error("Nenhuma usina encontrada para a conta informada.");
   }
 
-  // Truque para pegar os últimos 2 meses: Pede de hoje pra trás, e de 30 dias atrás pra trás
-  const today = new Date();
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(today.getDate() - 30);
+  // TRUQUE DE MESTRE: Criar 4 datas voltando 15 dias de cada vez (Total 60 dias)
+  const d0 = new Date();
+  const d15 = new Date(); d15.setDate(d0.getDate() - 15);
+  const d30 = new Date(); d30.setDate(d0.getDate() - 30);
+  const d45 = new Date(); d45.setDate(d0.getDate() - 45);
 
-  const [detailPayload, hourlyPayload, dailyPayload1, dailyPayload2, monthlyPayload] = await Promise.all([
+  // Faz as requisições em blocos curtos para a API da GoodWe aceitar
+  const [detailPayload, hourlyPayload, daily0, daily15, daily30, daily45, monthlyPayload] = await Promise.all([
     fetchPlantDetail(session, plantId),
     fetchPlantHourlyPower(session, plantId).catch(() => ({ pacs: [] })),
-    fetchPlantPowerByDay(session, plantId, 31).catch(() => []), // Últimos 31 dias
-    fetchPlantPowerByDay(session, plantId, 31, formatDateInput(thirtyDaysAgo)).catch(() => []), // Mais 31 dias anteriores
+    fetchPlantPowerByDay(session, plantId, 15, formatDateInput(d0)).catch(() => []),
+    fetchPlantPowerByDay(session, plantId, 15, formatDateInput(d15)).catch(() => []),
+    fetchPlantPowerByDay(session, plantId, 15, formatDateInput(d30)).catch(() => []),
+    fetchPlantPowerByDay(session, plantId, 15, formatDateInput(d45)).catch(() => []),
     fetchPlantPowerByMonth(session, plantId, 12).catch(() => []),
   ]);
 
@@ -409,10 +412,13 @@ export async function getSemsPlantSnapshot(): Promise<SemsPlantSnapshot> {
   const inverters = mapInverters(detail);
   const rawInverters = Array.isArray(detail.inverter) ? detail.inverter : [];
   
-  // Costura os dois meses, remove duplicados e organiza por data
-  const rawDaily1 = mapDailyHistory(dailyPayload1);
-  const rawDaily2 = mapDailyHistory(dailyPayload2);
-  const mergedDaily = [...rawDaily2, ...rawDaily1];
+  // Junta os 4 blocos (60 dias) em uma lista só, removendo os repetidos
+  const rawD0 = mapDailyHistory(daily0);
+  const rawD15 = mapDailyHistory(daily15);
+  const rawD30 = mapDailyHistory(daily30);
+  const rawD45 = mapDailyHistory(daily45);
+
+  const mergedDaily = [...rawD45, ...rawD30, ...rawD15, ...rawD0];
   const dailyHistory = mergedDaily
     .filter((v, i, a) => a.findIndex((v2) => v2.date === v.date) === i)
     .sort((a, b) => a.date.localeCompare(b.date));
