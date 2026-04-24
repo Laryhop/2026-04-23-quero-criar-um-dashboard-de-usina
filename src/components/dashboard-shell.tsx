@@ -156,7 +156,12 @@ export function DashboardShell() {
             <div className="rounded-2xl bg-white p-3 shadow-lg"><Image src="/solee-logo.png" alt="Logo" width={60} height={60} priority /></div>
             <div>
               <h1 className="text-2xl font-black text-white sm:text-3xl">Geração de Energia Solar</h1>
-              <p className="text-xs text-emerald-100/40 font-medium uppercase tracking-widest">Usina Maravilha-AL | Total de {inverters.length} Inversores</p>
+              <p className="text-xs text-emerald-100/40 font-medium uppercase tracking-widest mt-1">
+                Usina Maravilha-AL | Total de {inverters.length} Inversores
+                <br className="sm:hidden" />
+                <span className="hidden sm:inline"> • </span>
+                Última leitura: {summary.updatedAt ? new Date(summary.updatedAt).toLocaleString("pt-BR", { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : "--"}
+              </p>
             </div>
           </div>
           <button onClick={() => {
@@ -178,7 +183,7 @@ export function DashboardShell() {
           <MetricCard label="Potência Atual" value={isHistorical ? "--" : (nf.format(summary.currentPowerKw || 0) + " kW")} hint={isHistorical ? "Apenas tempo real" : "Soma de todos inversores"} />
           <MetricCard label="Status da Usina" value={summary.statusLabel || "Online"} hint={summary.location || "Maravilha, AL"} />
           <MetricCard label="Venda Total" value={cf.format(summary.totalRevenueBrl || 0)} hint="Acumulado Histórico" />
-          <MetricCard label="Data de Leitura" value={formatDateOnly(summary.updatedAt || new Date().toISOString())} hint="Sincronização do sistema" />
+          <MetricCard label="Geração Total" value={nf.format(summary.totalGenerationKwh || 0) + " kWh"} hint="Acumulado Histórico" />
         </section>
 
         {/* GRÁFICO DE BARRAS */}
@@ -194,6 +199,14 @@ export function DashboardShell() {
               </button>
             )}
           </div>
+          {hoverBar && (
+            <div className="absolute z-20 p-4 rounded-2xl bg-[#0d1a12] border-2 border-amber-500 text-white shadow-2xl pointer-events-none text-center"
+                 style={{ left: `50%`, top: `80px`, transform: 'translateX(-50%)' }}>
+              <p className="text-[10px] font-black text-amber-400 uppercase">{formatDateOnly(hoverBar.label)}</p>
+              <p className="text-2xl font-black">{nf.format(hoverBar.value)} kWh</p>
+              <p className="text-[9px] opacity-60 font-bold">Produção do dia (Clique para selecionar)</p>
+            </div>
+          )}
           <div className="relative h-[350px] w-full overflow-x-auto overflow-y-hidden custom-scrollbar pb-4">
             <div style={{ width: `${chartTotalWidth}px` }} className="h-full relative pr-8">
               <svg viewBox={`0 0 ${chartTotalWidth} 350`} className="w-full h-full overflow-visible">
@@ -227,14 +240,6 @@ export function DashboardShell() {
                   )
                 })}
               </svg>
-              {hoverBar && (
-                <div className="absolute z-20 p-4 rounded-2xl bg-[#0d1a12] border-2 border-amber-500 text-white shadow-2xl pointer-events-none"
-                     style={{ left: `50%`, top: `10%`, transform: 'translate(-50%, -50%)', position: 'fixed' }}>
-                  <p className="text-[10px] font-black text-amber-400 uppercase">{formatDateOnly(hoverBar.label)}</p>
-                  <p className="text-2xl font-black">{nf.format(hoverBar.value)} kWh</p>
-                  <p className="text-[9px] opacity-60 font-bold">Produção do dia (Clique para selecionar)</p>
-                </div>
-              )}
             </div>
           </div>
         </section>
@@ -284,9 +289,9 @@ export function DashboardShell() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-emerald-900/10">
-                {dailyHistory.slice(0, 10).map((day: any, i: number) => {
+                {[...dailyHistory].reverse().slice(0, 10).map((day: any, i: number, arr: any[]) => {
                   const val = day.kwh || day.generationKwh || 0;
-                  const prevVal = dailyHistory[i+1]?.kwh || dailyHistory[i+1]?.generationKwh || val;
+                  const prevVal = arr[i+1]?.kwh || arr[i+1]?.generationKwh || val;
                   const variation = prevVal !== 0 ? ((val - prevVal) / prevVal) * 100 : 0;
                   return (
                     <tr key={i} className="dark:text-white hover:bg-slate-50/50 dark:hover:bg-emerald-900/5 transition-colors">
@@ -384,7 +389,7 @@ export function DashboardShell() {
                     <p className="text-sm dark:text-white">{inv.powerKw} kW</p>
                   </div>
                   <div className="bg-white dark:bg-[#09120d] p-3 rounded-2xl border border-slate-100 dark:border-white/5">
-                    <p className="uppercase text-slate-400 mb-1">Hoje</p>
+                    <p className="uppercase text-slate-400 mb-1">Hoje (Até agora)</p>
                     <p className="text-sm dark:text-white">{nf.format(inv.dayGenerationKwh)} kWh</p>
                   </div>
                   <div className="bg-white dark:bg-[#09120d] p-3 rounded-2xl border border-slate-100 dark:border-white/5">
