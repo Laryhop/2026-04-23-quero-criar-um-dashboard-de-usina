@@ -375,21 +375,22 @@ export async function getSemsPlantSnapshot(): Promise<SemsPlantSnapshot> {
     throw new Error("Nenhuma usina encontrada para a conta informada.");
   }
 
-  // 1. Busca os detalhes da usina e a curva de hoje
-  const detailPayload = await fetchPlantDetail(session, plantId);
-  const hourlyPayload = await fetchPlantHourlyPower(session, plantId).catch(() => ({ pacs: [] }));
-  const monthlyPayload = await fetchPlantPowerByMonth(session, plantId, 12).catch(() => []);
+  // 1. Busca os detalhes principais em paralelo
+  const [detailPayload, hourlyPayload, monthlyPayload] = await Promise.all([
+    fetchPlantDetail(session, plantId),
+    fetchPlantHourlyPower(session, plantId).catch((e) => { console.error("Hourly Error:", e); return { pacs: [] }; }),
+    fetchPlantPowerByMonth(session, plantId, 12).catch((e) => { console.error("Monthly Error:", e); return []; })
+  ]);
   
-  // 2. O SEGREDO (Anti-Bloqueio GoodWe): Busca o histórico em FILA (Sequencial)
+  // 2. Busca o histórico de 60 dias em paralelo para não dar Timeout no Vercel (10s)
   const today = new Date();
-  
-  // Pede os últimos 31 dias e ESPERA a resposta
-  const dailyCurrentMonth = await fetchPlantPowerByDay(session, plantId, 31, formatDateInput(today)).catch(() => []);
-  
-  // Volta 31 dias no tempo, pede os próximos 31 e ESPERA a resposta
   const pastMonth = new Date();
   pastMonth.setDate(today.getDate() - 31);
-  const dailyPastMonth = await fetchPlantPowerByDay(session, plantId, 31, formatDateInput(pastMonth)).catch(() => []);
+
+  const [dailyCurrentMonth, dailyPastMonth] = await Promise.all([
+    fetchPlantPowerByDay(session, plantId, 31, formatDateInput(today)).catch((e) => { console.error("DailyCurrent Error:", e); return []; }),
+    fetchPlantPowerByDay(session, plantId, 31, formatDateInput(pastMonth)).catch((e) => { console.error("DailyPast Error:", e); return []; })
+  ]);
 
   const detail = unwrapEnvelope<Record<string, unknown>>(detailPayload);
   const location = parseString(
