@@ -22,12 +22,10 @@ function parseNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
-
   if (typeof value === "string") {
     const normalized = value.replace(",", ".").match(/-?\d+(\.\d+)?/);
     return normalized ? Number(normalized[0]) : 0;
   }
-
   return 0;
 }
 
@@ -44,7 +42,6 @@ function unwrapEnvelope<T>(payload: unknown): T {
   ) {
     return (payload as { data: T }).data;
   }
-
   return payload as T;
 }
 
@@ -53,13 +50,11 @@ function collectObjects(input: unknown, results: Array<Record<string, unknown>> 
     input.forEach((item) => collectObjects(item, results));
     return results;
   }
-
   if (input && typeof input === "object") {
     const record = input as Record<string, unknown>;
     results.push(record);
     Object.values(record).forEach((value) => collectObjects(value, results));
   }
-
   return results;
 }
 
@@ -71,7 +66,6 @@ function resolveStatusLabel(status: unknown): string {
     if (status === 2) return "Falha";
     return `Status ${status}`;
   }
-
   return parseString(status, "Indefinido");
 }
 
@@ -80,7 +74,6 @@ function toIsoDate(input: string) {
   if (!Number.isNaN(parsed.getTime())) {
     return parsed.toISOString();
   }
-
   return input;
 }
 
@@ -347,12 +340,21 @@ async function fetchPlantDetail(session: LoginSession, plantId: string) {
   });
 }
 
-// A MÁGICA ESTÁ AQUI: Esta rota (ByMonth) é a que traz a lista de todos os dias do mês
-async function fetchPlantDailyDataForMonth(session: LoginSession, plantId: string, dateStr: string) {
+// A ROTA CORRETA É GetPowerStationPowerAndIncomeByDay passando a data de início e a contagem.
+async function fetchPlantPowerByDay(session: LoginSession, plantId: string, count: number, dateStr?: string) {
+  return semsRequest<unknown>("PowerStationMonitor/GetPowerStationPowerAndIncomeByDay", session, {
+    powerstation_id: plantId,
+    date: dateStr || formatDateInput(new Date()),
+    count,
+    id: plantId,
+  });
+}
+
+async function fetchPlantPowerByMonth(session: LoginSession, plantId: string, count: number) {
   return semsRequest<unknown>("PowerStationMonitor/GetPowerStationPowerAndIncomeByMonth", session, {
     powerstation_id: plantId,
-    date: dateStr,
-    count: 1, 
+    date: formatDateInput(new Date()),
+    count,
     id: plantId,
   });
 }
@@ -373,18 +375,21 @@ export async function getSemsPlantSnapshot(): Promise<SemsPlantSnapshot> {
     throw new Error("Nenhuma usina encontrada para a conta informada.");
   }
 
-  // Define a data de Hoje e a data de 1 Mês Atrás
+  // 1. Busca os detalhes da usina e a curva de hoje
+  const detailPayload = await fetchPlantDetail(session, plantId);
+  const hourlyPayload = await fetchPlantHourlyPower(session, plantId).catch(() => ({ pacs: [] }));
+  const monthlyPayload = await fetchPlantPowerByMonth(session, plantId, 12).catch(() => []);
+  
+  // 2. O SEGREDO (Anti-Bloqueio GoodWe): Busca o histórico em FILA (Sequencial)
   const today = new Date();
-  const lastMonth = new Date();
-  lastMonth.setMonth(today.getMonth() - 1);
-
-  // Faz as requisições: Pega a usina, a curva de hora, o mês atual (em dias) e o mês passado (em dias)
-  const [detailPayload, hourlyPayload, currentMonthPayload, lastMonthPayload] = await Promise.all([
-    fetchPlantDetail(session, plantId),
-    fetchPlantHourlyPower(session, plantId).catch(() => ({ pacs: [] })),
-    fetchPlantDailyDataForMonth(session, plantId, formatDateInput(today)).catch(() => []),
-    fetchPlantDailyDataForMonth(session, plantId, formatDateInput(lastMonth)).catch(() => []),
-  ]);
+  
+  // Pede os últimos 31 dias e ESPERA a resposta
+  const dailyCurrentMonth = await fetchPlantPowerByDay(session, plantId, 31, formatDateInput(today)).catch(() => []);
+  
+  // Volta 31 dias no tempo, pede os próximos 31 e ESPERA a resposta
+  const pastMonth = new Date();
+  pastMonth.setDate(today.getDate() - 31);
+  const dailyPastMonth = await fetchPlantPowerByDay(session, plantId, 31, formatDateInput(pastMonth)).catch(() => []);
 
   const detail = unwrapEnvelope<Record<string, unknown>>(detailPayload);
   const location = parseString(
@@ -399,16 +404,17 @@ export async function getSemsPlantSnapshot(): Promise<SemsPlantSnapshot> {
   const inverters = mapInverters(detail);
   const rawInverters = Array.isArray(detail.inverter) ? detail.inverter : [];
   
-  // Processando os dias do mês passado e do mês atual
-  const rawCurrentMonth = mapDailyHistory(currentMonthPayload);
-  const rawLastMonth = mapDailyHistory(lastMonthPayload);
+  // Extrai os dados das duas requisições
+  const rawCurrent = mapDailyHistory(dailyCurrentMonth);
+  const rawPast = mapDailyHistory(dailyPastMonth);
   
-  // Juntando os dois meses num histórico só de 60 dias
-  const mergedDaily = [...rawLastMonth, ...rawCurrentMonth];
+  // Junta tudo em uma lista só (60 dias) e remove possíveis dias duplicados
+  const mergedDaily = [...rawPast, ...rawCurrent];
   const dailyHistory = mergedDaily
-    .filter((v, i, a) => a.findIndex((v2) => v2.date === v.date) === i) // Remove dados duplicados
-    .sort((a, b) => a.date.localeCompare(b.date)); // Ordena do mais antigo pro mais novo
+    .filter((v, i, a) => a.findIndex((v2) => v2.date === v.date) === i)
+    .sort((a, b) => a.date.localeCompare(b.date));
 
+  const monthlyHistory = mapDailyHistory(monthlyPayload);
   const todayGenerationKwh = parseNumber(kpi.power);
   const monthGenerationKwh = getMonthGenerationFromDetail(kpi, inverters, rawInverters);
   
@@ -444,6 +450,6 @@ export async function getSemsPlantSnapshot(): Promise<SemsPlantSnapshot> {
     inverters,
     hourlyChart: mapHourlyChart(hourlyPayload),
     dailyHistory: hydratedDailyHistory,
-    monthlyHistory: [], // O seu site puxa do dailyHistory, então não precisamos disto agora
+    monthlyHistory,
   };
 }
