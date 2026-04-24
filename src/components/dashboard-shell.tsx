@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 // --- Tipagens e Formatadores ---
 type ApiState = { status: "loading" } | { status: "error"; message: string } | { status: "success"; data: any };
@@ -31,6 +31,13 @@ export function DashboardShell() {
   const [hoverData, setHoverData] = useState<any>(null);
   const [hoverBar, setHoverBar] = useState<any>(null);
   const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (state.status === "success" && scrollRef.current) {
+      scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+    }
+  }, [state.status]);
 
   useEffect(() => {
     const saved = localStorage.getItem("theme") === "dark";
@@ -207,7 +214,7 @@ export function DashboardShell() {
               <p className="text-[9px] opacity-60 font-bold">Produção do dia (Clique para selecionar)</p>
             </div>
           )}
-          <div className="relative h-[350px] w-full overflow-x-auto overflow-y-hidden custom-scrollbar pb-4">
+          <div ref={scrollRef} className="relative h-[350px] w-full overflow-x-auto overflow-y-hidden custom-scrollbar pb-4 scroll-smooth">
             <div style={{ width: `${chartTotalWidth}px` }} className="h-full relative pr-8">
               <svg viewBox={`0 0 ${chartTotalWidth} 350`} className="w-full h-full overflow-visible">
                 {gridLines.map((val, i) => (

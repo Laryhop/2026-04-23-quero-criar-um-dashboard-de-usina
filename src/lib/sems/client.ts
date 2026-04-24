@@ -452,7 +452,9 @@ export async function getSemsPlantSnapshot(): Promise<SemsPlantSnapshot> {
     totalGenerationKwh: parseNumber(kpi.total_power),
     todayGenerationKwh,
     monthGenerationKwh,
-    currentPowerKw: parseNumber(kpi.pac || detail.power) / 1000,
+    currentPowerKw: inverters.length > 0 
+      ? inverters.reduce((sum, inv) => sum + inv.powerKw, 0)
+      : parseNumber(kpi.pac || detail.power) / 1000,
     status:
       resolveStatusLabel(
         parseString((detail.info as Record<string, unknown> | undefined)?.status) ||
