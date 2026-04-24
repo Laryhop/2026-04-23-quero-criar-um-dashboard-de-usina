@@ -9,7 +9,6 @@ const nf = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
 const cf = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const cp = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
 
-// Função para deixar a data no formato exato DD/MM/YYYY
 const formatDateOnly = (isoString?: string) => {
   if (!isoString) return "--/--/----";
   const d = new Date(isoString);
@@ -29,8 +28,8 @@ function MetricCard({ label, value, hint }: any) {
 export function DashboardShell() {
   const [state, setState] = useState<ApiState>({ status: "loading" });
   const [isDark, setIsDark] = useState(false);
-  const [hoverData, setHoverData] = useState<any>(null); // Tooltip Gráfico Hora
-  const [hoverBar, setHoverBar] = useState<any>(null); // Tooltip Gráfico Mês
+  const [hoverData, setHoverData] = useState<any>(null);
+  const [hoverBar, setHoverBar] = useState<any>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("theme") === "dark";
@@ -55,25 +54,29 @@ export function DashboardShell() {
 
   const { solar, weather } = state.data;
   
-  // --- Proteções contra dados ausentes ---
+  // --- Dados Base ---
   const summary = solar?.summary || {};
   const hourlyData = solar?.hourlyChart || [];
   const inverters = solar?.inverters || [];
   const dailyHistory = solar?.dailyHistory || solar?.history || [];
 
-  // --- Lógica do Gráfico 1: Barras do Mês (Estilo SolarZ) ---
-  const monthlyTargetKwh = 50000;
-  const dailyTargetKwh = monthlyTargetKwh / 30; // ~1666.6 kWh por dia
+  // --- Lógica do Gráfico de Barras (Com rolagem para suportar 60+ dias) ---
+  const dailyTargetKwh = 2000; // META FIXADA EM 2000 kWh/dia
+  const monthlyTargetKwh = dailyTargetKwh * 30;
+  
   const barChartData = dailyHistory.map((d: any) => ({
     label: d.date || d.label || "",
     value: d.kwh || d.generationKwh || 0
   }));
+  
+  // Calcula a largura total do gráfico baseada na quantidade de dias (para não espremer as barras)
+  const chartTotalWidth = Math.max(1000, barChartData.length * 45); 
   const maxBarVal = Math.max(...barChartData.map((d:any) => d.value), dailyTargetKwh * 1.2, 2500);
   const gridLines = [0, maxBarVal * 0.25, maxBarVal * 0.5, maxBarVal * 0.75, maxBarVal];
-  const stepXBar = 950 / (barChartData.length > 0 ? barChartData.length : 1);
-  const barW = Math.min(stepXBar * 0.5, 40); // Largura máxima da barra
+  const stepXBar = chartTotalWidth / (barChartData.length > 0 ? barChartData.length : 1);
+  const barW = Math.min(stepXBar * 0.5, 40);
 
-  // --- Lógica do Gráfico 2: Linha Horária ---
+  // --- Lógica do Gráfico Linha (Hora) ---
   const widthLine = 1000;
   const heightLine = 300;
   const pointsLine = hourlyData.map((p: any) => ({ label: p.timeLabel, value: p.powerKw }));
@@ -111,38 +114,39 @@ export function DashboardShell() {
 
         {/* 8 CARDS DE MÉTRICAS */}
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard label="Geração Hoje" value={nf.format(summary.todayGenerationKwh || 0) + " kWh"} hint={`Meta: ${nf.format(summary.targetDailyKwh || 0)} kWh`} />
-          <MetricCard label="Geração Mensal" value={nf.format(summary.monthlyGenerationKwh || 0) + " kWh"} hint={`Meta: ${nf.format(monthlyTargetKwh)} kWh`} />
+          <MetricCard label="Geração Hoje" value={nf.format(summary.todayGenerationKwh || 0) + " kWh"} hint={`Meta Diária: ${nf.format(dailyTargetKwh)} kWh`} />
+          <MetricCard label="Geração Mensal" value={nf.format(summary.monthlyGenerationKwh || 0) + " kWh"} hint={`Meta Mensal: ${nf.format(monthlyTargetKwh)} kWh`} />
           <MetricCard label="Venda Hoje" value={cf.format((summary.todayGenerationKwh || 0) * 0.7)} hint="Venda estimada hoje" />
           <MetricCard label="Performance" value={(summary.performancePct || 0) + "%"} hint="Eficiência Combinada" />
           <MetricCard label="Potência Atual" value={nf.format(summary.currentPowerKw || 0) + " kW"} hint="Soma de todos inversores" />
           <MetricCard label="Status da Usina" value={summary.statusLabel || "Online"} hint={summary.location || "Maravilha, AL"} />
           <MetricCard label="Venda Total" value={cf.format(summary.totalRevenueBrl || 0)} hint="Acumulado Histórico" />
-          {/* DATA FORMATADA NESTE CARD */}
           <MetricCard label="Data de Leitura" value={formatDateOnly(summary.updatedAt || new Date().toISOString())} hint="Sincronização do sistema" />
         </section>
 
-        {/* NOVO: GRÁFICO DE BARRAS MENSAL (ESTILO SOLARZ) */}
-        <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 shadow-sm border border-slate-200 dark:border-emerald-900/30 relative overflow-hidden">
+        {/* GRÁFICO DE BARRAS (SUPORTA 60+ DIAS) */}
+        <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 shadow-sm border border-slate-200 dark:border-emerald-900/30 relative">
           <div className="mb-8">
-            <h2 className="text-xl font-black text-[#052e16] dark:text-white">Geração Diária (Mês)</h2>
-            <p className="text-xs text-slate-500 dark:text-emerald-400/50 font-bold">Produção diária comparada com a meta de {nf.format(dailyTargetKwh)} kWh/dia.</p>
+            <h2 className="text-xl font-black text-[#052e16] dark:text-white">Histórico de Geração Diária</h2>
+            <p className="text-xs text-slate-500 dark:text-emerald-400/50 font-bold">Arraste para o lado para ver meses anteriores. Meta diária fixada em {nf.format(dailyTargetKwh)} kWh/dia.</p>
           </div>
-          <div className="relative h-[350px] w-full overflow-x-auto overflow-y-hidden">
-            <div className="min-w-[800px] h-full relative">
-              <svg viewBox="0 0 1000 350" className="w-full h-full overflow-visible">
+          {/* Container com rolagem horizontal */}
+          <div className="relative h-[350px] w-full overflow-x-auto overflow-y-hidden custom-scrollbar pb-4">
+            <div style={{ width: `${chartTotalWidth}px` }} className="h-full relative pr-8">
+              <svg viewBox={`0 0 ${chartTotalWidth} 350`} className="w-full h-full overflow-visible">
                 
-                {/* Linhas de Grade e Eixo Y */}
+                {/* Linhas de Grade e Eixo Y (Acompanha a largura total) */}
                 {gridLines.map((val, i) => (
                   <g key={`grid-${i}`}>
-                    <line x1="60" y1={300 - (val / maxBarVal) * 260} x2="1000" y2={300 - (val / maxBarVal) * 260} stroke="currentColor" className="opacity-10 dark:opacity-20" strokeWidth="1" />
+                    <line x1="60" y1={300 - (val / maxBarVal) * 260} x2={chartTotalWidth} y2={300 - (val / maxBarVal) * 260} stroke="currentColor" className="opacity-10 dark:opacity-20" strokeWidth="1" />
+                    {/* Eixo Y fixo na esquerda do scroll */}
                     <text x="50" y={300 - (val / maxBarVal) * 260 + 4} fontSize="10" textAnchor="end" fill="currentColor" className="opacity-40 font-black dark:text-white">{cp.format(val)}</text>
                   </g>
                 ))}
 
                 {/* Linha Vermelha de Meta */}
-                <line x1="60" y1={300 - (dailyTargetKwh / maxBarVal) * 260} x2="1000" y2={300 - (dailyTargetKwh / maxBarVal) * 260} stroke="#ef4444" strokeWidth="2" strokeDasharray="4 4" />
-                <text x="1000" y={300 - (dailyTargetKwh / maxBarVal) * 260 - 8} fontSize="10" textAnchor="end" fill="#ef4444" className="font-black">META: {nf.format(dailyTargetKwh)}</text>
+                <line x1="60" y1={300 - (dailyTargetKwh / maxBarVal) * 260} x2={chartTotalWidth} y2={300 - (dailyTargetKwh / maxBarVal) * 260} stroke="#ef4444" strokeWidth="2" strokeDasharray="4 4" />
+                <text x={chartTotalWidth} y={300 - (dailyTargetKwh / maxBarVal) * 260 - 8} fontSize="10" textAnchor="end" fill="#ef4444" className="font-black">META: {nf.format(dailyTargetKwh)}</text>
 
                 {/* Barras de Geração */}
                 {barChartData.map((d: any, i: number) => {
@@ -151,20 +155,19 @@ export function DashboardShell() {
                   const y = 300 - barH;
                   return (
                     <g key={`bar-${i}`} onMouseEnter={() => setHoverBar(d)} onMouseLeave={() => setHoverBar(null)} className="cursor-pointer group">
-                      {/* Fundo da barra */}
                       <rect x={x} y={y} width={barW} height={barH} fill="#fef08a" stroke="#f59e0b" strokeWidth="1.5" className="group-hover:fill-[#fde047] transition-all" />
-                      {/* Texto da Data (Inclinado) */}
-                      <text x={x + barW/2} y={320} fontSize="10" textAnchor="end" transform={`rotate(-35 ${x + barW/2} 320)`} fill="currentColor" className="opacity-60 font-bold dark:text-emerald-100">{d.label.slice(0, 10)}</text>
+                      <text x={x + barW/2} y={320} fontSize="10" textAnchor="end" transform={`rotate(-35 ${x + barW/2} 320)`} fill="currentColor" className="opacity-60 font-bold dark:text-emerald-100">
+                        {formatDateOnly(d.label).slice(0, 5)} {/* Mostra apenas DD/MM para não poluir */}
+                      </text>
                     </g>
                   )
                 })}
               </svg>
 
-              {/* Tooltip do Gráfico de Barras */}
               {hoverBar && (
                 <div className="absolute z-20 p-4 rounded-2xl bg-[#0d1a12] border-2 border-amber-500 text-white shadow-2xl pointer-events-none"
-                     style={{ left: `50%`, top: `10%`, transform: 'translateX(-50%)' }}>
-                  <p className="text-[10px] font-black text-amber-400 uppercase">{hoverBar.label}</p>
+                     style={{ left: `50%`, top: `10%`, transform: 'translate(-50%, -50%)', position: 'fixed' }}>
+                  <p className="text-[10px] font-black text-amber-400 uppercase">{formatDateOnly(hoverBar.label)}</p>
                   <p className="text-2xl font-black">{nf.format(hoverBar.value)} kWh</p>
                   <p className="text-[9px] opacity-60 font-bold">Produção do dia</p>
                 </div>
@@ -173,7 +176,7 @@ export function DashboardShell() {
           </div>
         </section>
 
-        {/* GRÁFICO SOMA TOTAL POR HORA (MANTIDO) */}
+        {/* GRÁFICO SOMA TOTAL POR HORA */}
         <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 shadow-sm border border-slate-200 dark:border-emerald-900/30 relative">
           <div className="mb-8">
             <h2 className="text-xl font-black text-[#052e16] dark:text-white">Geração total por hora (Curva de Hoje)</h2>
@@ -206,7 +209,7 @@ export function DashboardShell() {
           </div>
         </section>
 
-        {/* TABELA DE COMPARAÇÃO (MANTIDA) */}
+        {/* TABELA DE COMPARAÇÃO */}
         <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 border border-slate-200 dark:border-emerald-900/30 overflow-hidden">
           <h2 className="text-xl font-black mb-6 dark:text-white">Comparação diária (Últimos dias)</h2>
           <div className="overflow-x-auto">
@@ -220,13 +223,13 @@ export function DashboardShell() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-emerald-900/10">
-                {dailyHistory.slice(0, 7).map((day: any, i: number) => {
+                {dailyHistory.slice(0, 10).map((day: any, i: number) => {
                   const val = day.kwh || day.generationKwh || 0;
                   const prevVal = dailyHistory[i+1]?.kwh || dailyHistory[i+1]?.generationKwh || val;
                   const variation = prevVal !== 0 ? ((val - prevVal) / prevVal) * 100 : 0;
                   return (
                     <tr key={i} className="dark:text-white hover:bg-slate-50/50 dark:hover:bg-emerald-900/5 transition-colors">
-                      <td className="py-4 text-sm font-bold">{day.date || day.label}</td>
+                      <td className="py-4 text-sm font-bold">{formatDateOnly(day.date || day.label)}</td>
                       <td className="py-4 text-sm font-black">{nf.format(val)} kWh</td>
                       <td className="py-4 text-sm font-black text-emerald-600 dark:text-emerald-400">{cf.format(val * 0.7)}</td>
                       <td className={`py-4 text-xs font-black ${variation >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
@@ -241,7 +244,7 @@ export function DashboardShell() {
         </section>
 
         <div className="grid gap-8 lg:grid-cols-2">
-          {/* VALOR ESTIMADO (MANTIDO) */}
+          {/* VALOR ESTIMADO */}
           <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 border border-slate-200 dark:border-emerald-900/30 text-center flex flex-col justify-center">
             <h2 className="text-xl font-black mb-6 dark:text-white">Valor estimado da Usina</h2>
             <div className="grid grid-cols-3 gap-4">
@@ -260,7 +263,7 @@ export function DashboardShell() {
             </div>
           </section>
 
-          {/* PREVISÃO DO TEMPO - ADAPTADA PARA MODO CLARO E COM CHUVA (MANTIDA) */}
+          {/* PREVISÃO DO TEMPO */}
           <section className="rounded-[2.5rem] p-8 shadow-sm border transition-all duration-300 bg-white dark:bg-[#09120d] border-slate-200 dark:border-emerald-900/50">
             <div className="flex items-center justify-between mb-8">
               <p className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400 tracking-[0.2em]">Clima em Maravilha, AL</p>
@@ -277,7 +280,6 @@ export function DashboardShell() {
                   <p className="text-[8px] font-medium text-slate-400 dark:text-white/40 uppercase">Vento: {weather?.current?.windSpeed}</p>
                 </div>
               </div>
-
               {/* AMANHÃ */}
               <div className="p-4 rounded-2xl border transition-all bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/10">
                 <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-2">Amanhã</p>
@@ -288,7 +290,6 @@ export function DashboardShell() {
                   <p className="text-[8px] font-medium text-slate-400 dark:text-white/40 uppercase">Min: {weather?.forecast?.[0]?.min}°</p>
                 </div>
               </div>
-
               {/* DEPOIS DE AMANHÃ */}
               <div className="p-4 rounded-2xl border transition-all bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/10">
                 <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-2">Próximo</p>
@@ -303,7 +304,7 @@ export function DashboardShell() {
           </section>
         </div>
 
-        {/* STATUS DOS INVERSORES INDIVIDUAIS (MANTIDO) */}
+        {/* STATUS DOS INVERSORES INDIVIDUAIS */}
         <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 border border-slate-200 dark:border-emerald-900/30">
           <h2 className="text-xl font-black mb-8 dark:text-white">Status dos inversores individuais</h2>
           <div className="grid gap-6 md:grid-cols-2">
