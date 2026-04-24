@@ -382,10 +382,19 @@ export async function getSemsPlantSnapshot(): Promise<SemsPlantSnapshot> {
     fetchPlantPowerByMonth(session, plantId, 12).catch((e) => { console.error("Monthly Error:", e); return []; })
   ]);
   
-  // 2. Busca o histórico em uma única requisição para evitar timeout (Vercel) e bloqueio (GoodWe)
+  // 2. Busca o histórico sequencialmente em blocos de 31 dias para evitar o bloqueio antibot da GoodWe, 
+  // mas como o Passo 1 foi paralelo, teremos tempo de sobra antes do timeout de 10s do Vercel.
   const today = new Date();
-  const dailyHistoryRaw = await fetchPlantPowerByDay(session, plantId, 60, formatDateInput(today)).catch((e) => { 
-    console.error("DailyHistory Error:", e); 
+  const pastMonth = new Date();
+  pastMonth.setDate(today.getDate() - 31);
+
+  const dailyCurrentRaw = await fetchPlantPowerByDay(session, plantId, 31, formatDateInput(today)).catch((e) => { 
+    console.error("DailyCurrent Error:", e); 
+    return []; 
+  });
+  
+  const dailyPastRaw = await fetchPlantPowerByDay(session, plantId, 31, formatDateInput(pastMonth)).catch((e) => { 
+    console.error("DailyPast Error:", e); 
     return []; 
   });
 
@@ -402,10 +411,13 @@ export async function getSemsPlantSnapshot(): Promise<SemsPlantSnapshot> {
   const inverters = mapInverters(detail);
   const rawInverters = Array.isArray(detail.inverter) ? detail.inverter : [];
   
-  // Extrai os dados da requisição
-  const mergedDaily = mapDailyHistory(dailyHistoryRaw);
+  // Extrai os dados da requisição (ByDay e ByMonth caso ByMonth também retorne dias como fallback)
+  const currentDaily = mapDailyHistory(dailyCurrentRaw);
+  const pastDaily = mapDailyHistory(dailyPastRaw);
+  const monthDailyFallback = mapDailyHistory(monthlyPayload);
   
   // Remove possíveis dias duplicados e ordena
+  const mergedDaily = [...pastDaily, ...currentDaily, ...monthDailyFallback];
   const dailyHistory = mergedDaily
     .filter((v, i, a) => a.findIndex((v2) => v2.date === v.date) === i)
     .sort((a, b) => a.date.localeCompare(b.date));
