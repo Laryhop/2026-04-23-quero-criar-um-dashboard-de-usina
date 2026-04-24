@@ -60,8 +60,8 @@ export function DashboardShell() {
   const inverters = solar?.inverters || [];
   const dailyHistory = solar?.dailyHistory || solar?.history || [];
 
-  // --- Lógica do Gráfico de Barras (Com rolagem para suportar 60+ dias) ---
-  const dailyTargetKwh = 2000; // META FIXADA EM 2000 kWh/dia
+  // --- Lógica do Gráfico de Barras ---
+  const dailyTargetKwh = 2000; 
   const monthlyTargetKwh = dailyTargetKwh * 30;
   
   const barChartData = dailyHistory.map((d: any) => ({
@@ -69,17 +69,40 @@ export function DashboardShell() {
     value: d.kwh || d.generationKwh || 0
   }));
   
-  // Calcula a largura total do gráfico baseada na quantidade de dias (para não espremer as barras)
   const chartTotalWidth = Math.max(1000, barChartData.length * 45); 
   const maxBarVal = Math.max(...barChartData.map((d:any) => d.value), dailyTargetKwh * 1.2, 2500);
   const gridLines = [0, maxBarVal * 0.25, maxBarVal * 0.5, maxBarVal * 0.75, maxBarVal];
   const stepXBar = chartTotalWidth / (barChartData.length > 0 ? barChartData.length : 1);
   const barW = Math.min(stepXBar * 0.5, 40);
 
-  // --- Lógica do Gráfico Linha (Hora) ---
+  // --- Lógica do Gráfico Linha (Com preenchimento para as horas vazias) ---
   const widthLine = 1000;
   const heightLine = 300;
-  const pointsLine = hourlyData.map((p: any) => ({ label: p.timeLabel, value: p.powerKw }));
+  let pointsLine = hourlyData.map((p: any) => ({ label: p.timeLabel, value: p.powerKw }));
+
+  // TRUQUE: Preencher as horas vazias para o gráfico não sumir de noite
+  if (pointsLine.length === 0) {
+    // Se a API retornar vazio, cria uma linha reta no ZERO
+    pointsLine = [
+      { label: "00:00", value: 0 },
+      { label: "06:00", value: 0 },
+      { label: "12:00", value: 0 },
+      { label: "18:00", value: 0 },
+      { label: "23:59", value: 0 }
+    ];
+  } else {
+    // Garante que o dia sempre comece à meia-noite
+    if (pointsLine[0].label > "00:00") {
+      pointsLine.unshift({ label: "00:00", value: 0 });
+    }
+    // Garante que o dia sempre termine à meia-noite, derrubando a linha pro ZERO nas horas sem geração
+    const lastPoint = pointsLine[pointsLine.length - 1];
+    if (lastPoint.label < "23:59") {
+      pointsLine.push({ label: "Noite", value: 0 });
+      pointsLine.push({ label: "23:59", value: 0 });
+    }
+  }
+
   const maxLineVal = Math.max(...pointsLine.map((p: any) => p.value), 1);
   const stepXLine = widthLine / (pointsLine.length > 1 ? pointsLine.length - 1 : 1);
   const svgPointsLine = pointsLine.map((p: any, i: number) => ({
@@ -87,7 +110,7 @@ export function DashboardShell() {
     y: heightLine - (p.value / maxLineVal) * (heightLine - 80) - 40,
     ...p
   }));
-  const pathD = svgPointsLine.length > 0 ? svgPointsLine.map((p: any, i: number) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') : "";
+  const pathD = svgPointsLine.map((p: any, i: number) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
 
   return (
     <main className="min-h-screen bg-[#f8fafc] p-4 transition-colors duration-300 dark:bg-[#060d09] sm:p-8">
@@ -124,31 +147,23 @@ export function DashboardShell() {
           <MetricCard label="Data de Leitura" value={formatDateOnly(summary.updatedAt || new Date().toISOString())} hint="Sincronização do sistema" />
         </section>
 
-        {/* GRÁFICO DE BARRAS (SUPORTA 60+ DIAS) */}
+        {/* GRÁFICO DE BARRAS */}
         <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 shadow-sm border border-slate-200 dark:border-emerald-900/30 relative">
           <div className="mb-8">
             <h2 className="text-xl font-black text-[#052e16] dark:text-white">Histórico de Geração Diária</h2>
             <p className="text-xs text-slate-500 dark:text-emerald-400/50 font-bold">Arraste para o lado para ver meses anteriores. Meta diária fixada em {nf.format(dailyTargetKwh)} kWh/dia.</p>
           </div>
-          {/* Container com rolagem horizontal */}
           <div className="relative h-[350px] w-full overflow-x-auto overflow-y-hidden custom-scrollbar pb-4">
             <div style={{ width: `${chartTotalWidth}px` }} className="h-full relative pr-8">
               <svg viewBox={`0 0 ${chartTotalWidth} 350`} className="w-full h-full overflow-visible">
-                
-                {/* Linhas de Grade e Eixo Y (Acompanha a largura total) */}
                 {gridLines.map((val, i) => (
                   <g key={`grid-${i}`}>
                     <line x1="60" y1={300 - (val / maxBarVal) * 260} x2={chartTotalWidth} y2={300 - (val / maxBarVal) * 260} stroke="currentColor" className="opacity-10 dark:opacity-20" strokeWidth="1" />
-                    {/* Eixo Y fixo na esquerda do scroll */}
                     <text x="50" y={300 - (val / maxBarVal) * 260 + 4} fontSize="10" textAnchor="end" fill="currentColor" className="opacity-40 font-black dark:text-white">{cp.format(val)}</text>
                   </g>
                 ))}
-
-                {/* Linha Vermelha de Meta */}
                 <line x1="60" y1={300 - (dailyTargetKwh / maxBarVal) * 260} x2={chartTotalWidth} y2={300 - (dailyTargetKwh / maxBarVal) * 260} stroke="#ef4444" strokeWidth="2" strokeDasharray="4 4" />
                 <text x={chartTotalWidth} y={300 - (dailyTargetKwh / maxBarVal) * 260 - 8} fontSize="10" textAnchor="end" fill="#ef4444" className="font-black">META: {nf.format(dailyTargetKwh)}</text>
-
-                {/* Barras de Geração */}
                 {barChartData.map((d: any, i: number) => {
                   const barH = (d.value / maxBarVal) * 260;
                   const x = 60 + i * stepXBar + (stepXBar - barW) / 2;
@@ -157,13 +172,12 @@ export function DashboardShell() {
                     <g key={`bar-${i}`} onMouseEnter={() => setHoverBar(d)} onMouseLeave={() => setHoverBar(null)} className="cursor-pointer group">
                       <rect x={x} y={y} width={barW} height={barH} fill="#fef08a" stroke="#f59e0b" strokeWidth="1.5" className="group-hover:fill-[#fde047] transition-all" />
                       <text x={x + barW/2} y={320} fontSize="10" textAnchor="end" transform={`rotate(-35 ${x + barW/2} 320)`} fill="currentColor" className="opacity-60 font-bold dark:text-emerald-100">
-                        {formatDateOnly(d.label).slice(0, 5)} {/* Mostra apenas DD/MM para não poluir */}
+                        {formatDateOnly(d.label).slice(0, 5)}
                       </text>
                     </g>
                   )
                 })}
               </svg>
-
               {hoverBar && (
                 <div className="absolute z-20 p-4 rounded-2xl bg-[#0d1a12] border-2 border-amber-500 text-white shadow-2xl pointer-events-none"
                      style={{ left: `50%`, top: `10%`, transform: 'translate(-50%, -50%)', position: 'fixed' }}>
@@ -176,28 +190,26 @@ export function DashboardShell() {
           </div>
         </section>
 
-        {/* GRÁFICO SOMA TOTAL POR HORA */}
+        {/* GRÁFICO SOMA TOTAL POR HORA (AGORA COBRE 24H) */}
         <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 shadow-sm border border-slate-200 dark:border-emerald-900/30 relative">
           <div className="mb-8">
             <h2 className="text-xl font-black text-[#052e16] dark:text-white">Geração total por hora (Curva de Hoje)</h2>
-            <p className="text-xs text-slate-500 dark:text-emerald-400/50 font-bold">Valores consolidados instantâneos (kW) de todos os equipamentos ao longo do dia atual.</p>
+            <p className="text-xs text-slate-500 dark:text-emerald-400/50 font-bold">A curva reflete as últimas leituras. Em momentos sem geração, a linha é zerada.</p>
           </div>
           <div className="relative h-[300px] w-full">
-            {svgPointsLine.length > 0 && (
-              <svg viewBox={`0 0 ${widthLine} ${heightLine}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
-                <path d={`${pathD} L ${widthLine} ${heightLine} L 0 ${heightLine} Z`} fill="url(#sun-grad)" className="opacity-40" />
-                <path d={pathD} fill="none" stroke="#f8b93c" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
-                <defs>
-                  <linearGradient id="sun-grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f8b93c" /><stop offset="100%" stopColor="#f8b93c" stopOpacity="0" />
-                  </linearGradient>
-                </defs>
-                {svgPointsLine.map((p: any, i: number) => (
-                  <rect key={i} x={p.x - 15} y="0" width="30" height={heightLine} fill="transparent" className="cursor-pointer" 
-                    onMouseEnter={() => setHoverData(p)} onMouseLeave={() => setHoverData(null)} />
-                ))}
-              </svg>
-            )}
+            <svg viewBox={`0 0 ${widthLine} ${heightLine}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
+              <path d={`${pathD} L ${widthLine} ${heightLine} L 0 ${heightLine} Z`} fill="url(#sun-grad)" className="opacity-40" />
+              <path d={pathD} fill="none" stroke="#f8b93c" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+              <defs>
+                <linearGradient id="sun-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#f8b93c" /><stop offset="100%" stopColor="#f8b93c" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              {svgPointsLine.map((p: any, i: number) => (
+                <rect key={i} x={p.x - 15} y="0" width="30" height={heightLine} fill="transparent" className="cursor-pointer" 
+                  onMouseEnter={() => setHoverData(p)} onMouseLeave={() => setHoverData(null)} />
+              ))}
+            </svg>
             {hoverData && (
               <div className="absolute z-20 p-4 rounded-2xl bg-[#0d1a12] border-2 border-amber-500 text-white shadow-2xl pointer-events-none"
                    style={{ left: `${(hoverData.x / widthLine) * 100}%`, top: `${(hoverData.y / heightLine) * 100 - 40}%`, transform: 'translateX(-50%)' }}>
@@ -270,7 +282,6 @@ export function DashboardShell() {
               <p className="text-[10px] font-bold text-slate-400 dark:text-white/40">Atualizado {formatDateOnly(new Date().toISOString())}</p>
             </div>
             <div className="grid grid-cols-3 gap-4">
-              {/* HOJE */}
               <div className="p-4 rounded-2xl border transition-all bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/10">
                 <p className="text-[9px] font-black text-amber-600 dark:text-amber-400 uppercase mb-2">Hoje</p>
                 <p className="text-3xl font-black text-[#052e16] dark:text-white">{weather?.current?.temp || "24"}°</p>
@@ -280,7 +291,6 @@ export function DashboardShell() {
                   <p className="text-[8px] font-medium text-slate-400 dark:text-white/40 uppercase">Vento: {weather?.current?.windSpeed}</p>
                 </div>
               </div>
-              {/* AMANHÃ */}
               <div className="p-4 rounded-2xl border transition-all bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/10">
                 <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-2">Amanhã</p>
                 <p className="text-3xl font-black text-[#052e16] dark:text-white">{weather?.forecast?.[0]?.max || "26"}°</p>
@@ -290,7 +300,6 @@ export function DashboardShell() {
                   <p className="text-[8px] font-medium text-slate-400 dark:text-white/40 uppercase">Min: {weather?.forecast?.[0]?.min}°</p>
                 </div>
               </div>
-              {/* DEPOIS DE AMANHÃ */}
               <div className="p-4 rounded-2xl border transition-all bg-slate-50 dark:bg-white/5 border-slate-100 dark:border-white/10">
                 <p className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase mb-2">Próximo</p>
                 <p className="text-3xl font-black text-[#052e16] dark:text-white">{weather?.forecast?.[1]?.max || "27"}°</p>
