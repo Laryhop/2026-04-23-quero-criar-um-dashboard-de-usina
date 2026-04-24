@@ -30,6 +30,7 @@ export function DashboardShell() {
   const [isDark, setIsDark] = useState(false);
   const [hoverData, setHoverData] = useState<any>(null);
   const [hoverBar, setHoverBar] = useState<any>(null);
+  const [selectedDateStr, setSelectedDateStr] = useState<string | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("theme") === "dark";
@@ -60,13 +61,46 @@ export function DashboardShell() {
   const inverters = solar?.inverters || [];
   const dailyHistory = solar?.dailyHistory || solar?.history || [];
 
+  // --- Processar Últimos 60 Dias ---
+  const historyDays = 60;
+  const lastDaysData = [];
+  const todayObj = new Date();
+  const todayStr = todayObj.toISOString().split('T')[0];
+
+  for (let i = historyDays - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(todayObj.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    
+    const found = dailyHistory.find((item: any) => item.date && item.date.startsWith(dateStr));
+    const gen = found ? (found.kwh || found.generationKwh || 0) : 0;
+    
+    lastDaysData.push({
+      date: dateStr,
+      label: d.toISOString(),
+      generationKwh: gen,
+      economyBrl: found ? (found.economyBrl || (gen * (summary.tariffKwhBrl || 0.7))) : 0,
+    });
+  }
+
+  const selectedDayInfo = selectedDateStr 
+    ? lastDaysData.find(d => d.date === selectedDateStr)
+    : null;
+
+  const isHistorical = selectedDateStr && selectedDateStr !== todayStr;
+  const displayGeneration = isHistorical && selectedDayInfo ? selectedDayInfo.generationKwh : (summary.todayGenerationKwh || 0);
+  const displayEconomy = isHistorical && selectedDayInfo ? selectedDayInfo.economyBrl : ((summary.todayGenerationKwh || 0) * (summary.tariffKwhBrl || 0.7));
+  const displayLabel = isHistorical && selectedDayInfo ? `Geração ${formatDateOnly(selectedDayInfo.label).slice(0, 5)}` : "Geração Hoje";
+  const displayVendaLabel = isHistorical && selectedDayInfo ? `Venda ${formatDateOnly(selectedDayInfo.label).slice(0, 5)}` : "Venda Hoje";
+
   // --- Lógica do Gráfico de Barras ---
-  const dailyTargetKwh = 2000; 
+  const dailyTargetKwh = summary.targetDailyKwh || 2000; 
   const monthlyTargetKwh = dailyTargetKwh * 30;
   
-  const barChartData = dailyHistory.map((d: any) => ({
-    label: d.date || d.label || "",
-    value: d.kwh || d.generationKwh || 0
+  const barChartData = lastDaysData.map((d: any) => ({
+    label: d.label,
+    date: d.date,
+    value: d.generationKwh
   }));
   
   const chartTotalWidth = Math.max(1000, barChartData.length * 45); 
@@ -137,11 +171,11 @@ export function DashboardShell() {
 
         {/* 8 CARDS DE MÉTRICAS */}
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <MetricCard label="Geração Hoje" value={nf.format(summary.todayGenerationKwh || 0) + " kWh"} hint={`Meta Diária: ${nf.format(dailyTargetKwh)} kWh`} />
+          <MetricCard label={displayLabel} value={nf.format(displayGeneration) + " kWh"} hint={`Meta Diária: ${nf.format(dailyTargetKwh)} kWh`} />
           <MetricCard label="Geração Mensal" value={nf.format(summary.monthlyGenerationKwh || 0) + " kWh"} hint={`Meta Mensal: ${nf.format(monthlyTargetKwh)} kWh`} />
-          <MetricCard label="Venda Hoje" value={cf.format((summary.todayGenerationKwh || 0) * 0.7)} hint="Venda estimada hoje" />
+          <MetricCard label={displayVendaLabel} value={cf.format(displayEconomy)} hint={isHistorical ? "Venda estimada no dia" : "Venda estimada hoje"} />
           <MetricCard label="Performance" value={(summary.performancePct || 0) + "%"} hint="Eficiência Combinada" />
-          <MetricCard label="Potência Atual" value={nf.format(summary.currentPowerKw || 0) + " kW"} hint="Soma de todos inversores" />
+          <MetricCard label="Potência Atual" value={isHistorical ? "--" : (nf.format(summary.currentPowerKw || 0) + " kW")} hint={isHistorical ? "Apenas tempo real" : "Soma de todos inversores"} />
           <MetricCard label="Status da Usina" value={summary.statusLabel || "Online"} hint={summary.location || "Maravilha, AL"} />
           <MetricCard label="Venda Total" value={cf.format(summary.totalRevenueBrl || 0)} hint="Acumulado Histórico" />
           <MetricCard label="Data de Leitura" value={formatDateOnly(summary.updatedAt || new Date().toISOString())} hint="Sincronização do sistema" />
@@ -149,9 +183,16 @@ export function DashboardShell() {
 
         {/* GRÁFICO DE BARRAS */}
         <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 shadow-sm border border-slate-200 dark:border-emerald-900/30 relative">
-          <div className="mb-8">
-            <h2 className="text-xl font-black text-[#052e16] dark:text-white">Histórico de Geração Diária</h2>
-            <p className="text-xs text-slate-500 dark:text-emerald-400/50 font-bold">Arraste para o lado para ver meses anteriores. Meta diária fixada em {nf.format(dailyTargetKwh)} kWh/dia.</p>
+          <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-[#052e16] dark:text-white">Histórico de Geração (Últimos 60 dias)</h2>
+              <p className="text-xs text-slate-500 dark:text-emerald-400/50 font-bold">Clique em uma barra para ver os detalhes do dia. Meta diária: {nf.format(dailyTargetKwh)} kWh.</p>
+            </div>
+            {selectedDateStr && (
+              <button onClick={() => setSelectedDateStr(null)} className="text-xs font-black bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-4 py-2 rounded-full hover:bg-amber-200 transition-colors">
+                Limpar Seleção (Ver Hoje)
+              </button>
+            )}
           </div>
           <div className="relative h-[350px] w-full overflow-x-auto overflow-y-hidden custom-scrollbar pb-4">
             <div style={{ width: `${chartTotalWidth}px` }} className="h-full relative pr-8">
@@ -168,10 +209,18 @@ export function DashboardShell() {
                   const barH = (d.value / maxBarVal) * 260;
                   const x = 60 + i * stepXBar + (stepXBar - barW) / 2;
                   const y = 300 - barH;
+                  const isSelected = selectedDateStr === d.date;
                   return (
-                    <g key={`bar-${i}`} onMouseEnter={() => setHoverBar(d)} onMouseLeave={() => setHoverBar(null)} className="cursor-pointer group">
-                      <rect x={x} y={y} width={barW} height={barH} fill="#fef08a" stroke="#f59e0b" strokeWidth="1.5" className="group-hover:fill-[#fde047] transition-all" />
-                      <text x={x + barW/2} y={320} fontSize="10" textAnchor="end" transform={`rotate(-35 ${x + barW/2} 320)`} fill="currentColor" className="opacity-60 font-bold dark:text-emerald-100">
+                    <g key={`bar-${i}`} 
+                       onClick={() => setSelectedDateStr(isSelected ? null : d.date)}
+                       onMouseEnter={() => setHoverBar(d)} 
+                       onMouseLeave={() => setHoverBar(null)} 
+                       className="cursor-pointer group">
+                      <rect x={x} y={y} width={barW} height={barH} 
+                            fill={isSelected ? "#f59e0b" : "#fef08a"} 
+                            stroke="#f59e0b" strokeWidth={isSelected ? "2" : "1.5"} 
+                            className="group-hover:fill-[#fde047] transition-all" />
+                      <text x={x + barW/2} y={320} fontSize="10" textAnchor="end" transform={`rotate(-35 ${x + barW/2} 320)`} fill="currentColor" className={`font-bold ${isSelected ? 'opacity-100 text-amber-600 dark:text-amber-400' : 'opacity-60 dark:text-emerald-100'}`}>
                         {formatDateOnly(d.label).slice(0, 5)}
                       </text>
                     </g>
@@ -183,7 +232,7 @@ export function DashboardShell() {
                      style={{ left: `50%`, top: `10%`, transform: 'translate(-50%, -50%)', position: 'fixed' }}>
                   <p className="text-[10px] font-black text-amber-400 uppercase">{formatDateOnly(hoverBar.label)}</p>
                   <p className="text-2xl font-black">{nf.format(hoverBar.value)} kWh</p>
-                  <p className="text-[9px] opacity-60 font-bold">Produção do dia</p>
+                  <p className="text-[9px] opacity-60 font-bold">Produção do dia (Clique para selecionar)</p>
                 </div>
               )}
             </div>
@@ -315,7 +364,10 @@ export function DashboardShell() {
 
         {/* STATUS DOS INVERSORES INDIVIDUAIS */}
         <section className="rounded-[2.5rem] bg-white dark:bg-[#0f1d15] p-8 border border-slate-200 dark:border-emerald-900/30">
-          <h2 className="text-xl font-black mb-8 dark:text-white">Status dos inversores individuais</h2>
+          <div className="flex justify-between items-end mb-8">
+            <h2 className="text-xl font-black dark:text-white">Status dos inversores individuais</h2>
+            {isHistorical && <span className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-1 rounded-full">Exibindo dados atuais</span>}
+          </div>
           <div className="grid gap-6 md:grid-cols-2">
             {inverters.map((inv: any) => (
               <div key={inv.id} className="rounded-[2rem] bg-slate-50 dark:bg-[#0d1a12] p-6 border border-slate-100 dark:border-emerald-900/20 hover:border-emerald-500/30 transition-colors">
